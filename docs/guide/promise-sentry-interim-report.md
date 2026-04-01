@@ -159,19 +159,11 @@ These findings demonstrate the ValidationRunner correctly detecting structural i
 
 ## 4. Reflection
 
-> **[YOUR ACTION REQUIRED]**: Write your personal reflection here (max 400 words).
-> Prompts to consider:
-> - What did you discover about your own systems that you did not know before writing the contracts?
-> - What assumptions turned out to be wrong?
-> - Which inter-system interface surprised you the most?
+The most surprising discovery was a naming convention collision in the Week 5 Veritas Stream events. Payload fields ending with `_id` — like `application_id`, `session_id`, and `package_id` — contain application-specific identifiers such as "APEX-0001" and "docpkg-APEX-0001", not UUID v4 strings. When the ContractGenerator profiled these columns, it correctly inferred the `_id` suffix convention and generated a UUID format clause. The ValidationRunner then flagged 11 UUID format violations across 1,198 records. This is not a bug — it is a genuine ambiguity between system identifiers (which should be UUIDs for global uniqueness) and domain identifiers (which carry business meaning in their structure). Without a contract making this distinction explicit, a downstream consumer parsing `application_id` as a UUID would silently fail. The contract now documents which `_id` fields are UUIDs and which are domain-structured strings.
 
-**Suggested starting points based on what the data revealed:**
+The Week 3 PaperMind confidence distribution revealed something I had not considered. All 28,818 extracted fact confidence scores fall between 0.67 and 1.00, with a mean of 0.83 and standard deviation of only 0.048. There are no low-confidence extractions at all. This means either the extraction model is uniformly confident about everything it produces — which is suspicious and suggests poor calibration — or low-confidence extractions were filtered out upstream in the PaperMind pipeline before reaching the output JSONL. Either way, the narrow distribution is now captured as a baseline. If a future model change or pipeline modification shifts the mean outside this band, the statistical drift check will catch it. Before writing the contract, this distribution was invisible — the data existed but nobody had profiled it.
 
-- The Week 5 Veritas Stream events use application-specific IDs ("APEX-0001") in payload fields that end with `_id`. The convention of `_id` → UUID doesn't hold for domain identifiers vs. system identifiers. This is a naming ambiguity that a contract makes explicit.
-
-- The Week 3 PaperMind confidence scores range from 0.67 to 1.00 with a mean of 0.83. There are no low-confidence extractions below 0.67 — either the extraction model is highly confident about everything (suspicious), or low-confidence extractions were filtered upstream before reaching the output. The contract baseline now captures this distribution, so any future shift is detectable.
-
-- The Week 4 Cartographer's `brownfield-cartographer` project has 0 nodes in its own lineage graph — it maps other codebases but not itself. This is a blind spot that a contract coverage table makes visible.
+The Week 4 Cartographer exposed an ironic blind spot: it maps the dependency graphs of five external codebases (dbt-core, airflow, sqlalchemy, ol-data-platform, jaffle-shop) but produces zero nodes when scanning its own repository. The `brownfield-cartographer` entry in `.cartography/` has an empty lineage graph. This means the tool that generates the lineage data used by the ViolationAttributor cannot trace violations within itself. The contract coverage table made this gap visible immediately — without it, the assumption that "Week 4 covers all systems" would have gone unquestioned. This is the kind of discovery that validates the entire exercise: the contract enforcer's first finding was about the contract enforcer's own dependency.
 
 ---
 
