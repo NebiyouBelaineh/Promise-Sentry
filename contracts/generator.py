@@ -169,7 +169,7 @@ def column_to_clause(profile):
     # Hash fields
     if "hash" in name and clause["type"] == "string":
         clause["pattern"] = "^[a-f0-9]{64}$"
-        clause["description"] = "SHA-256 hash."
+        clause["description"] = "SHA-256 hash. Changes iff source content changes."
 
     # Enum detection: low cardinality string columns
     if (clause["type"] == "string"
@@ -178,20 +178,24 @@ def column_to_clause(profile):
             and len(profile["sample_values"]) == profile["cardinality_estimate"]):
         clause["enum"] = profile["sample_values"]
 
+    # PascalCase pattern detection
+    if clause["type"] == "string" and profile["sample_values"]:
+        pascal_re = re.compile(r"^[A-Z][a-zA-Z0-9]+$")
+        if all(pascal_re.match(v) for v in profile["sample_values"] if v):
+            clause["pattern"] = "^[A-Z][a-zA-Z0-9]+$"
+            clause.setdefault("description", "")
+            clause["description"] = (clause["description"] + " PascalCase identifier.").strip()
+
     # Numeric range from stats
     if "stats" in profile:
         stats = profile["stats"]
         if "minimum" not in clause:
-            clause["description"] = clause.get("description", "")
             if stats["min"] >= 0:
                 clause["minimum"] = 0
-        # Add statistical metadata
-        clause["_stats"] = {
-            "observed_mean": round(stats["mean"], 4),
-            "observed_stddev": round(stats["stddev"], 4),
-            "observed_min": round(stats["min"], 4),
-            "observed_max": round(stats["max"], 4),
-        }
+
+    # Auto-generate descriptions for fields that lack one
+    if not clause.get("description"):
+        clause["description"] = _auto_describe(name, clause, profile)
 
     # Uniqueness hint
     if (name.endswith("_id")
@@ -200,6 +204,117 @@ def column_to_clause(profile):
         clause["unique"] = True
 
     return clause
+
+
+def _auto_describe(name, clause, profile):
+    """Generate a human-readable description for a column."""
+    parts = []
+    col_type = clause.get("type", "unknown")
+
+    if name.endswith("_id"):
+        parts.append(f"Identifier field ({col_type}).")
+    elif name.endswith("_at"):
+        parts.append("Timestamp in ISO 8601 format.")
+    elif "count" in name:
+        parts.append(f"Count metric ({col_type}).")
+    elif "token" in name:
+        parts.append("Token usage metric.")
+    elif "path" in name:
+        parts.append("File or resource path.")
+    elif "model" in name:
+        parts.append("Model identifier string.")
+    elif "text" in name or "excerpt" in name:
+        parts.append("Free-text content field.")
+    elif "score" in name:
+        parts.append("Numeric score.")
+    elif "version" in name:
+        parts.append("Version identifier.")
+    elif "type" in name:
+        parts.append("Type classifier.")
+    else:
+        parts.append(f"{name.replace('_', ' ').title()} field.")
+
+    if clause.get("required"):
+        parts.append("Required — must not be null.")
+    if clause.get("unique"):
+        parts.append("Must be unique across all records.")
+    if "stats" in profile:
+        s = profile["stats"]
+        parts.append(f"Observed range: [{s['min']:.2f}, {s['max']:.2f}], mean={s['mean']:.2f}.")
+
+    return " ".join(parts)
+
+
+def infer_cross_column_constraints(records, column_profiles):
+    """Infer constraints that span multiple columns."""
+    constraints = []
+
+    col_names = set(column_profiles.keys())
+
+    # Temporal ordering: recorded_at >= occurred_at
+    if "recorded_at" in col_names and "occurred_at" in col_names:
+        constraints.append({
+            "id": "temporal_ordering",
+            "type": "cross_column",
+            "rule": "recorded_at >= occurred_at",
+            "description": "Recording timestamp must be at or after the occurrence timestamp.",
+            "severity": "CRITICAL",
+        })
+
+    # Token sum: total_tokens = prompt_tokens + completion_tokens
+    if "total_tokens" in col_names and "prompt_tokens" in col_names and "completion_tokens" in col_names:
+        constraints.append({
+            "id": "token_sum",
+            "type": "cross_column",
+            "rule": "total_tokens == prompt_tokens + completion_tokens",
+            "description": "Total token count must equal the sum of prompt and completion tokens.",
+            "severity": "CRITICAL",
+        })
+
+    # Sequence monotonicity per aggregate
+    if "sequence_number" in col_names and "aggregate_id" in col_names:
+        constraints.append({
+            "id": "sequence_monotonicity",
+            "type": "cross_column",
+            "rule": "sequence_number is monotonically increasing per aggregate_id",
+            "description": "Sequence numbers must increase without gaps or duplicates within each aggregate.",
+            "severity": "CRITICAL",
+        })
+
+    # entity_refs referential integrity (Week 3)
+    for r in records[:1]:
+        if "extracted_facts" in r and isinstance(r.get("extracted_facts"), list):
+            if "entities" in r:
+                constraints.append({
+                    "id": "entity_refs_integrity",
+                    "type": "referential",
+                    "rule": "extracted_facts[*].entity_refs[] must reference entity_ids in entities[] of the same record",
+                    "description": "Every entity reference in extracted facts must exist in the record's entities array.",
+                    "severity": "CRITICAL",
+                })
+            # Non-empty array
+            constraints.append({
+                "id": "extracted_facts_non_empty",
+                "type": "structural",
+                "rule": "len(extracted_facts) >= 1",
+                "description": "Each extraction record must contain at least one extracted fact.",
+                "severity": "HIGH",
+            })
+            break
+
+    # Non-empty array for events payload
+    for r in records[:1]:
+        if "payload" in r and isinstance(r.get("payload"), dict):
+            constraints.append({
+                "id": "payload_non_empty",
+                "type": "structural",
+                "rule": "len(payload) >= 1",
+                "description": "Event payload must contain at least one field.",
+                "severity": "HIGH",
+            })
+            break
+
+    return constraints
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +364,8 @@ def inject_lineage(contract, lineage_path, contract_id):
     return contract
 
 
-def build_contract(contract_id, source_path, column_profiles, lineage_path=None):
+def build_contract(contract_id, source_path, column_profiles, lineage_path=None,
+                   records=None):
     """Assemble the full Bitol-compatible contract YAML."""
     # Build schema section
     schema = {}
@@ -260,6 +376,11 @@ def build_contract(contract_id, source_path, column_profiles, lineage_path=None)
     source_name = Path(source_path).stem
     week_match = re.search(r"week(\d+)", source_path)
     week_num = week_match.group(1) if week_match else "unknown"
+
+    # Infer cross-column constraints from raw records
+    cross_column = []
+    if records:
+        cross_column = infer_cross_column_constraints(records, column_profiles)
 
     contract = {
         "kind": "DataContract",
@@ -284,7 +405,8 @@ def build_contract(contract_id, source_path, column_profiles, lineage_path=None)
             "limitations": "Confidence fields must remain in 0.0-1.0 float range.",
         },
         "schema": schema,
-        "quality": build_quality_section(column_profiles, source_name),
+        "constraints": cross_column,
+        "quality": build_quality_section(column_profiles, source_name, cross_column),
     }
 
     # Inject lineage
@@ -293,7 +415,7 @@ def build_contract(contract_id, source_path, column_profiles, lineage_path=None)
     return contract
 
 
-def build_quality_section(column_profiles, table_name):
+def build_quality_section(column_profiles, table_name, cross_column=None):
     """Build Soda-compatible quality checks."""
     checks = []
     for col_name, profile in column_profiles.items():
@@ -305,6 +427,10 @@ def build_quality_section(column_profiles, table_name):
             checks.append(f"min({col_name}) >= 0.0")
             checks.append(f"max({col_name}) <= 1.0")
 
+    # Add cross-column constraint checks
+    for cc in (cross_column or []):
+        checks.append(f"# {cc['id']}: {cc['rule']}")
+
     checks.append("row_count >= 1")
 
     return {
@@ -315,7 +441,7 @@ def build_quality_section(column_profiles, table_name):
     }
 
 
-def build_dbt_schema(contract_id, column_profiles, source_path):
+def build_dbt_schema(contract_id, column_profiles, source_path, cross_column=None):
     """Generate dbt-compatible schema.yml from the contract."""
     source_name = Path(source_path).stem
     columns = []
@@ -333,19 +459,53 @@ def build_dbt_schema(contract_id, column_profiles, source_path):
                 and profile["sample_values"]):
             tests.append({"accepted_values": {"values": profile["sample_values"]}})
 
+        # Range tests for confidence fields
+        if "confidence" in col_name and "stats" in profile:
+            tests.append({"dbt_utils.expression_is_true": {
+                "expression": f"{col_name} >= 0.0 AND {col_name} <= 1.0"
+            }})
+
+        # Positive integer checks for count/token/ms fields
+        if profile.get("stats") and profile["stats"]["min"] >= 0:
+            if any(kw in col_name for kw in ["_ms", "_count", "token", "processing_time"]):
+                tests.append({"dbt_utils.expression_is_true": {
+                    "expression": f"{col_name} >= 0"
+                }})
+
         if tests:
             col_def["tests"] = tests
         columns.append(col_def)
 
+    # Model-level tests from cross-column constraints
+    model_tests = []
+    for cc in (cross_column or []):
+        if cc["id"] == "temporal_ordering":
+            model_tests.append({"dbt_utils.expression_is_true": {
+                "expression": "recorded_at >= occurred_at",
+                "config": {"severity": "error"},
+            }})
+        elif cc["id"] == "token_sum":
+            model_tests.append({"dbt_utils.expression_is_true": {
+                "expression": "total_tokens = prompt_tokens + completion_tokens",
+                "config": {"severity": "error"},
+            }})
+        elif cc["id"] == "extracted_facts_non_empty":
+            model_tests.append({"dbt_utils.expression_is_true": {
+                "expression": "json_array_length(extracted_facts) >= 1",
+                "config": {"severity": "error"},
+            }})
+
+    model_def = {
+        "name": source_name,
+        "description": f"dbt schema for {contract_id}",
+        "columns": columns,
+    }
+    if model_tests:
+        model_def["tests"] = model_tests
+
     dbt_schema = {
         "version": 2,
-        "models": [
-            {
-                "name": source_name,
-                "description": f"dbt schema for {contract_id}",
-                "columns": columns,
-            }
-        ],
+        "models": [model_def],
     }
     return dbt_schema
 
@@ -390,7 +550,8 @@ def main():
                 print(f"  WARNING: {col_name} mean={stats['mean']:.3f} — almost certainly broken")
 
     print("Building contract...")
-    contract = build_contract(args.contract_id, source_path, column_profiles, args.lineage)
+    contract = build_contract(args.contract_id, source_path, column_profiles, args.lineage,
+                              records=records)
 
     # Derive output filename from contract-id
     safe_name = args.contract_id.replace("-", "_").split("_", 1)[-1] if "_" in args.contract_id.replace("-", "_") else args.contract_id.replace("-", "_")
@@ -411,7 +572,8 @@ def main():
     print(f"  Schema clauses: {len(contract['schema'])}")
 
     # Write dbt schema.yml
-    dbt_schema = build_dbt_schema(args.contract_id, column_profiles, source_path)
+    dbt_schema = build_dbt_schema(args.contract_id, column_profiles, source_path,
+                                  cross_column=contract.get("constraints", []))
     dbt_path = output_dir / f"{yaml_name}_dbt.yml"
     with open(dbt_path, "w") as f:
         yaml.dump(dbt_schema, f, default_flow_style=False, sort_keys=False)

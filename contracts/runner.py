@@ -428,6 +428,164 @@ def check_statistical_drift(col_name, clause, df, baselines):
 
 
 # ---------------------------------------------------------------------------
+# Cross-column & constraint checks
+# ---------------------------------------------------------------------------
+
+def check_cross_column_constraints(constraints, df, records):
+    """Evaluate cross-column constraints from the contract."""
+    results = []
+    for cc in constraints:
+        cc_id = cc.get("id", "unknown")
+        rule = cc.get("rule", "")
+        severity = cc.get("severity", "HIGH")
+
+        if cc_id == "temporal_ordering":
+            results.append(_check_temporal_ordering(df, cc_id, rule, severity))
+        elif cc_id == "token_sum":
+            results.append(_check_token_sum(df, cc_id, rule, severity))
+        elif cc_id == "sequence_monotonicity":
+            results.append(_check_monotonicity(df, cc_id, rule, severity))
+        elif cc_id == "entity_refs_integrity":
+            results.append(_check_entity_refs(records, cc_id, rule, severity))
+        elif cc_id == "extracted_facts_non_empty":
+            results.append(_check_array_non_empty(records, "extracted_facts", cc_id, rule, severity))
+        elif cc_id == "payload_non_empty":
+            results.append(_check_dict_non_empty(records, "payload", cc_id, rule, severity))
+
+    return [r for r in results if r is not None]
+
+
+def _check_temporal_ordering(df, cc_id, rule, severity):
+    if "recorded_at" not in df.columns or "occurred_at" not in df.columns:
+        return None
+    try:
+        rec = pd.to_datetime(df["recorded_at"], utc=True, format="mixed")
+        occ = pd.to_datetime(df["occurred_at"], utc=True, format="mixed")
+        violations = (rec < occ).sum()
+    except Exception:
+        return {"check_id": f"constraint.{cc_id}", "column_name": "recorded_at,occurred_at",
+                "check_type": "cross_column", "status": "ERROR",
+                "actual_value": "parse error", "expected": rule,
+                "severity": severity, "records_failing": 0, "sample_failing": [],
+                "message": "Could not parse timestamps for temporal ordering check."}
+
+    status = "FAIL" if violations > 0 else "PASS"
+    return {"check_id": f"constraint.{cc_id}", "column_name": "recorded_at,occurred_at",
+            "check_type": "cross_column", "status": status,
+            "actual_value": f"violations={int(violations)}", "expected": rule,
+            "severity": severity if status == "FAIL" else "LOW",
+            "records_failing": int(violations), "sample_failing": [],
+            "message": f"Temporal ordering: {int(violations)} records where recorded_at < occurred_at."}
+
+
+def _check_token_sum(df, cc_id, rule, severity):
+    for cols in [("total_tokens", "prompt_tokens", "completion_tokens")]:
+        if all(c in df.columns for c in cols):
+            total = df[cols[0]].fillna(0)
+            parts = df[cols[1]].fillna(0) + df[cols[2]].fillna(0)
+            violations = (total != parts).sum()
+            status = "FAIL" if violations > 0 else "PASS"
+            return {"check_id": f"constraint.{cc_id}", "column_name": ",".join(cols),
+                    "check_type": "cross_column", "status": status,
+                    "actual_value": f"mismatches={int(violations)}", "expected": rule,
+                    "severity": severity if status == "FAIL" else "LOW",
+                    "records_failing": int(violations), "sample_failing": [],
+                    "message": f"Token sum check: {int(violations)} mismatches."}
+    return None
+
+
+def _check_monotonicity(df, cc_id, rule, severity):
+    if "sequence_number" not in df.columns or "aggregate_id" not in df.columns:
+        return None
+    violations = 0
+    for agg_id, group in df.groupby("aggregate_id"):
+        seq = group["sequence_number"].dropna().tolist()
+        for i in range(1, len(seq)):
+            if seq[i] <= seq[i - 1]:
+                violations += 1
+    status = "FAIL" if violations > 0 else "PASS"
+    return {"check_id": f"constraint.{cc_id}", "column_name": "sequence_number,aggregate_id",
+            "check_type": "cross_column", "status": status,
+            "actual_value": f"monotonicity_violations={violations}", "expected": rule,
+            "severity": severity if status == "FAIL" else "LOW",
+            "records_failing": violations, "sample_failing": [],
+            "message": f"Sequence monotonicity: {violations} ordering violations across aggregates."}
+
+
+def _check_entity_refs(records, cc_id, rule, severity):
+    violations = 0
+    total = 0
+    for r in records:
+        entities = {e["entity_id"] for e in r.get("entities", []) if "entity_id" in e}
+        for fact in r.get("extracted_facts", []):
+            for ref in fact.get("entity_refs", []):
+                total += 1
+                if ref not in entities:
+                    violations += 1
+    if total == 0:
+        return None
+    status = "FAIL" if violations > 0 else "PASS"
+    return {"check_id": f"constraint.{cc_id}", "column_name": "extracted_facts.entity_refs,entities",
+            "check_type": "referential", "status": status,
+            "actual_value": f"dangling_refs={violations}/{total}", "expected": rule,
+            "severity": severity if status == "FAIL" else "LOW",
+            "records_failing": violations, "sample_failing": [],
+            "message": f"Entity ref integrity: {violations} dangling references out of {total} total."}
+
+
+def _check_array_non_empty(records, field, cc_id, rule, severity):
+    violations = sum(1 for r in records if not r.get(field))
+    status = "FAIL" if violations > 0 else "PASS"
+    return {"check_id": f"constraint.{cc_id}", "column_name": field,
+            "check_type": "structural", "status": status,
+            "actual_value": f"empty_count={violations}", "expected": rule,
+            "severity": severity if status == "FAIL" else "LOW",
+            "records_failing": violations, "sample_failing": [],
+            "message": f"{field} non-empty check: {violations} records with empty array."}
+
+
+def _check_dict_non_empty(records, field, cc_id, rule, severity):
+    violations = sum(1 for r in records if not r.get(field))
+    status = "FAIL" if violations > 0 else "PASS"
+    return {"check_id": f"constraint.{cc_id}", "column_name": field,
+            "check_type": "structural", "status": status,
+            "actual_value": f"empty_count={violations}", "expected": rule,
+            "severity": severity if status == "FAIL" else "LOW",
+            "records_failing": violations, "sample_failing": [],
+            "message": f"{field} non-empty check: {violations} records with empty dict."}
+
+
+def check_pattern(col_name, clause, df):
+    """Check regex pattern constraint."""
+    pattern = clause.get("pattern")
+    if not pattern or col_name not in df.columns:
+        return None
+    # Skip UUID patterns (already handled by uuid check)
+    if clause.get("format") == "uuid":
+        return None
+    try:
+        compiled = re.compile(pattern)
+    except re.error:
+        return None
+
+    series = df[col_name].dropna().astype(str)
+    invalid = series[~series.str.match(compiled)]
+    if len(invalid) == 0:
+        return {"check_id": f"{col_name}.pattern", "column_name": col_name,
+                "check_type": "pattern", "status": "PASS",
+                "actual_value": f"all values match {pattern}", "expected": f"pattern={pattern}",
+                "severity": "LOW", "records_failing": 0, "sample_failing": [],
+                "message": f"All {col_name} values match pattern {pattern}."}
+    sample = invalid.head(5).tolist()
+    return {"check_id": f"{col_name}.pattern", "column_name": col_name,
+            "check_type": "pattern", "status": "FAIL",
+            "actual_value": f"non_matching={len(invalid)}", "expected": f"pattern={pattern}",
+            "severity": "HIGH", "records_failing": int(len(invalid)),
+            "sample_failing": sample,
+            "message": f"{col_name} has {len(invalid)} values not matching pattern {pattern}."}
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -495,7 +653,8 @@ def main():
     for col_name, clause in schema.items():
         # Structural checks
         for check_fn in [check_required, check_type, check_enum,
-                         check_uuid_pattern, check_datetime_format, check_range]:
+                         check_uuid_pattern, check_datetime_format, check_range,
+                         check_pattern]:
             result = check_fn(col_name, clause, df)
             if result:
                 results.append(result)
@@ -504,6 +663,13 @@ def main():
         drift_result = check_statistical_drift(col_name, clause, df, baselines)
         if drift_result:
             results.append(drift_result)
+
+    # Cross-column constraint checks
+    constraints = contract.get("constraints", [])
+    if constraints:
+        print(f"  {len(constraints)} cross-column constraints to check")
+        cc_results = check_cross_column_constraints(constraints, df, records)
+        results.extend(cc_results)
 
     # Tally results
     passed = sum(1 for r in results if r["status"] == "PASS")

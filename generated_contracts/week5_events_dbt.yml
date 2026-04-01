@@ -149,8 +149,14 @@ models:
         values:
         - fresh
   - name: payload_context_token_count
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_context_token_count >= 0
   - name: payload_started_at
   - name: payload_validation_duration_ms
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_validation_duration_ms >= 0
   - name: payload_validated_at
   - name: payload_node_name
   - name: payload_node_sequence
@@ -161,9 +167,18 @@ models:
         - 'False'
         - 'True'
   - name: payload_llm_tokens_input
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_llm_tokens_input >= 0
   - name: payload_llm_tokens_output
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_llm_tokens_output >= 0
   - name: payload_llm_cost_usd
   - name: payload_duration_ms
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_duration_ms >= 0
   - name: payload_executed_at
   - name: payload_page_count
     tests:
@@ -173,6 +188,8 @@ models:
         - '5.0'
         - '2.0'
         - '4.0'
+    - dbt_utils.expression_is_true:
+        expression: payload_page_count >= 0
   - name: payload_detected_format
     tests:
     - accepted_values:
@@ -197,6 +214,9 @@ models:
   - name: payload_tool_input_summary
   - name: payload_tool_output_summary
   - name: payload_tool_duration_ms
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_tool_duration_ms >= 0
   - name: payload_called_at
   - name: payload_raw_text_length
   - name: payload_tables_extracted
@@ -208,8 +228,15 @@ models:
         - '3.0'
         - '2.0'
   - name: payload_processing_ms
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_processing_ms >= 0
   - name: payload_completed_at
   - name: payload_overall_confidence
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_overall_confidence >= 0.0 AND payload_overall_confidence
+          <= 1.0
   - name: payload_is_coherent
     tests:
     - accepted_values:
@@ -242,6 +269,8 @@ models:
     - accepted_values:
         values:
         - '0.0'
+    - dbt_utils.expression_is_true:
+        expression: payload_quality_flag_count >= 0
   - name: payload_ready_at
   - name: payload_output_summary
   - name: payload_written_at
@@ -260,8 +289,14 @@ models:
         - '1.0'
         - '0.0'
   - name: payload_total_tokens_used
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_total_tokens_used >= 0
   - name: payload_total_cost_usd
   - name: payload_total_duration_ms
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_total_duration_ms >= 0
   - name: payload_next_agent_triggered
     tests:
     - accepted_values:
@@ -307,6 +342,9 @@ models:
   - name: payload_model_deployment_id
   - name: payload_input_data_hash
   - name: payload_analysis_duration_ms
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_analysis_duration_ms >= 0
   - name: payload_screening_model_version
     tests:
     - accepted_values:
@@ -413,6 +451,9 @@ models:
         - 'True'
   - name: payload_orchestrator_session_id
   - name: payload_confidence
+    tests:
+    - dbt_utils.expression_is_true:
+        expression: payload_confidence >= 0.0 AND payload_confidence <= 1.0
   - name: payload_approved_amount_usd
     tests:
     - accepted_values:
@@ -495,3 +536,8 @@ models:
         - '2026-03-21T14:31:25.737552'
         - '2026-03-23T16:13:50.743900'
         - '2026-03-06T19:42:15.749726'
+  tests:
+  - dbt_utils.expression_is_true:
+      expression: recorded_at >= occurred_at
+      config:
+        severity: error

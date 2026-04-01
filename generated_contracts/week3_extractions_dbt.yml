@@ -22,15 +22,21 @@ models:
   - name: processing_time_ms
     tests:
     - not_null
+    - dbt_utils.expression_is_true:
+        expression: processing_time_ms >= 0
   - name: extracted_at
     tests:
     - not_null
   - name: token_count_input
     tests:
     - not_null
+    - dbt_utils.expression_is_true:
+        expression: token_count_input >= 0
   - name: token_count_output
     tests:
     - not_null
+    - dbt_utils.expression_is_true:
+        expression: token_count_output >= 0
   - name: extracted_facts_fact_id
     tests:
     - not_null
@@ -44,12 +50,22 @@ models:
     - accepted_values:
         values:
         - '1'
+    - dbt_utils.expression_is_true:
+        expression: extracted_facts_entity_refs_count >= 0
   - name: extracted_facts_confidence
     tests:
     - not_null
+    - dbt_utils.expression_is_true:
+        expression: extracted_facts_confidence >= 0.0 AND extracted_facts_confidence
+          <= 1.0
   - name: extracted_facts_page_ref
     tests:
     - not_null
   - name: extracted_facts_source_excerpt
     tests:
     - not_null
+  tests:
+  - dbt_utils.expression_is_true:
+      expression: json_array_length(extracted_facts) >= 1
+      config:
+        severity: error

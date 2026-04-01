@@ -1,10 +1,10 @@
 {
-  "report_id": "df54ff6a-00bd-4509-ae70-e6a1e453e60f",
+  "report_id": "b44a8d76-e89d-464d-9efc-0a866e7a6f94",
   "contract_id": "week3-document-refinery-extractions",
   "snapshot_id": "fdc1cbf368a1fad78ffb33f8a6f4a6a465fa9aae2a7d14f93ae2386b26f02ea5",
-  "run_timestamp": "2026-04-01T14:46:16.695954+00:00",
-  "total_checks": 44,
-  "passed": 44,
+  "run_timestamp": "2026-04-01T19:08:25.487071+00:00",
+  "total_checks": 47,
+  "passed": 47,
   "failed": 0,
   "warned": 0,
   "errored": 0,
@@ -92,6 +92,18 @@
       "records_failing": 0,
       "sample_failing": [],
       "message": "source_hash dtype str matches expected string."
+    },
+    {
+      "check_id": "source_hash.pattern",
+      "column_name": "source_hash",
+      "check_type": "pattern",
+      "status": "PASS",
+      "actual_value": "all values match ^[a-f0-9]{64}$",
+      "expected": "pattern=^[a-f0-9]{64}$",
+      "severity": "LOW",
+      "records_failing": 0,
+      "sample_failing": [],
+      "message": "All source_hash values match pattern ^[a-f0-9]{64}$."
     },
     {
       "check_id": "extraction_model.required",
@@ -536,6 +548,30 @@
       "records_failing": 0,
       "sample_failing": [],
       "message": "extracted_facts_source_excerpt dtype str matches expected string."
+    },
+    {
+      "check_id": "constraint.entity_refs_integrity",
+      "column_name": "extracted_facts.entity_refs,entities",
+      "check_type": "referential",
+      "status": "PASS",
+      "actual_value": "dangling_refs=0/28818",
+      "expected": "extracted_facts[*].entity_refs[] must reference entity_ids in entities[] of the same record",
+      "severity": "LOW",
+      "records_failing": 0,
+      "sample_failing": [],
+      "message": "Entity ref integrity: 0 dangling references out of 28818 total."
+    },
+    {
+      "check_id": "constraint.extracted_facts_non_empty",
+      "column_name": "extracted_facts",
+      "check_type": "structural",
+      "status": "PASS",
+      "actual_value": "empty_count=0",
+      "expected": "len(extracted_facts) >= 1",
+      "severity": "LOW",
+      "records_failing": 0,
+      "sample_failing": [],
+      "message": "extracted_facts non-empty check: 0 records with empty array."
     }
   ]
 }

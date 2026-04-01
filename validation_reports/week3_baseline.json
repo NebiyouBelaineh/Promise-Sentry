@@ -1,10 +1,10 @@
 {
-  "report_id": "f828a100-31a5-42ba-bb4a-ea0e40f34f6c",
+  "report_id": "428c577d-b36f-419e-b663-783e6c3eaddb",
   "contract_id": "week3-document-refinery-extractions",
   "snapshot_id": "fdc1cbf368a1fad78ffb33f8a6f4a6a465fa9aae2a7d14f93ae2386b26f02ea5",
-  "run_timestamp": "2026-04-01T14:28:44.000686+00:00",
-  "total_checks": 44,
-  "passed": 44,
+  "run_timestamp": "2026-04-01T19:07:12.173496+00:00",
+  "total_checks": 41,
+  "passed": 41,
   "failed": 0,
   "warned": 0,
   "errored": 0,
@@ -94,6 +94,18 @@
       "message": "source_hash dtype str matches expected string."
     },
     {
+      "check_id": "source_hash.pattern",
+      "column_name": "source_hash",
+      "check_type": "pattern",
+      "status": "PASS",
+      "actual_value": "all values match ^[a-f0-9]{64}$",
+      "expected": "pattern=^[a-f0-9]{64}$",
+      "severity": "LOW",
+      "records_failing": 0,
+      "sample_failing": [],
+      "message": "All source_hash values match pattern ^[a-f0-9]{64}$."
+    },
+    {
       "check_id": "extraction_model.required",
       "column_name": "extraction_model",
       "check_type": "required",
@@ -164,18 +176,6 @@
       "records_failing": 0,
       "sample_failing": [],
       "message": "processing_time_ms values within expected range."
-    },
-    {
-      "check_id": "processing_time_ms.drift",
-      "column_name": "processing_time_ms",
-      "check_type": "statistical_drift",
-      "status": "PASS",
-      "actual_value": "mean=434069.2892, z_score=0.00",
-      "expected": "mean near 434069.2892",
-      "severity": "LOW",
-      "records_failing": 0,
-      "sample_failing": [],
-      "message": "processing_time_ms statistical drift within normal range."
     },
     {
       "check_id": "extracted_at.required",
@@ -250,18 +250,6 @@
       "message": "token_count_input values within expected range."
     },
     {
-      "check_id": "token_count_input.drift",
-      "column_name": "token_count_input",
-      "check_type": "statistical_drift",
-      "status": "PASS",
-      "actual_value": "mean=55255.0993, z_score=0.00",
-      "expected": "mean near 55255.0993",
-      "severity": "LOW",
-      "records_failing": 0,
-      "sample_failing": [],
-      "message": "token_count_input statistical drift within normal range."
-    },
-    {
       "check_id": "token_count_output.required",
       "column_name": "token_count_output",
       "check_type": "required",
@@ -296,18 +284,6 @@
       "records_failing": 0,
       "sample_failing": [],
       "message": "token_count_output values within expected range."
-    },
-    {
-      "check_id": "token_count_output.drift",
-      "column_name": "token_count_output",
-      "check_type": "statistical_drift",
-      "status": "PASS",
-      "actual_value": "mean=2867.4820, z_score=0.00",
-      "expected": "mean near 2867.4820",
-      "severity": "LOW",
-      "records_failing": 0,
-      "sample_failing": [],
-      "message": "token_count_output statistical drift within normal range."
     },
     {
       "check_id": "extracted_facts_fact_id.required",
@@ -406,18 +382,6 @@
       "message": "extracted_facts_entity_refs_count values within expected range."
     },
     {
-      "check_id": "extracted_facts_entity_refs_count.drift",
-      "column_name": "extracted_facts_entity_refs_count",
-      "check_type": "statistical_drift",
-      "status": "PASS",
-      "actual_value": "mean=1.0000, z_score=0.00",
-      "expected": "mean near 1.0000",
-      "severity": "LOW",
-      "records_failing": 0,
-      "sample_failing": [],
-      "message": "extracted_facts_entity_refs_count statistical drift within normal range."
-    },
-    {
       "check_id": "extracted_facts_confidence.required",
       "column_name": "extracted_facts_confidence",
       "check_type": "required",
@@ -452,18 +416,6 @@
       "records_failing": 0,
       "sample_failing": [],
       "message": "extracted_facts_confidence values within expected range."
-    },
-    {
-      "check_id": "extracted_facts_confidence.drift",
-      "column_name": "extracted_facts_confidence",
-      "check_type": "statistical_drift",
-      "status": "PASS",
-      "actual_value": "mean=0.8308, z_score=0.00",
-      "expected": "mean near 0.8308",
-      "severity": "LOW",
-      "records_failing": 0,
-      "sample_failing": [],
-      "message": "extracted_facts_confidence statistical drift within normal range."
     },
     {
       "check_id": "extracted_facts_page_ref.required",
@@ -502,18 +454,6 @@
       "message": "extracted_facts_page_ref values within expected range."
     },
     {
-      "check_id": "extracted_facts_page_ref.drift",
-      "column_name": "extracted_facts_page_ref",
-      "check_type": "statistical_drift",
-      "status": "PASS",
-      "actual_value": "mean=78.9609, z_score=0.00",
-      "expected": "mean near 78.9609",
-      "severity": "LOW",
-      "records_failing": 0,
-      "sample_failing": [],
-      "message": "extracted_facts_page_ref statistical drift within normal range."
-    },
-    {
       "check_id": "extracted_facts_source_excerpt.required",
       "column_name": "extracted_facts_source_excerpt",
       "check_type": "required",
@@ -536,6 +476,30 @@
       "records_failing": 0,
       "sample_failing": [],
       "message": "extracted_facts_source_excerpt dtype str matches expected string."
+    },
+    {
+      "check_id": "constraint.entity_refs_integrity",
+      "column_name": "extracted_facts.entity_refs,entities",
+      "check_type": "referential",
+      "status": "PASS",
+      "actual_value": "dangling_refs=0/28818",
+      "expected": "extracted_facts[*].entity_refs[] must reference entity_ids in entities[] of the same record",
+      "severity": "LOW",
+      "records_failing": 0,
+      "sample_failing": [],
+      "message": "Entity ref integrity: 0 dangling references out of 28818 total."
+    },
+    {
+      "check_id": "constraint.extracted_facts_non_empty",
+      "column_name": "extracted_facts",
+      "check_type": "structural",
+      "status": "PASS",
+      "actual_value": "empty_count=0",
+      "expected": "len(extracted_facts) >= 1",
+      "severity": "LOW",
+      "records_failing": 0,
+      "sample_failing": [],
+      "message": "extracted_facts non-empty check: 0 records with empty array."
     }
   ]
 }
