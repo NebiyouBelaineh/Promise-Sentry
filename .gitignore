@@ -211,3 +211,8 @@ __marimo__/
 
 # backup folder
 backup/
+
+# document styling
+docs/reports/cover.md
+docs/reports/inline-images.py
+docs/reports/pdf-style.css
