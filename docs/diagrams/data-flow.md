@@ -10,9 +10,9 @@ graph TD
     LS["<b>LangSmith</b><br/><i>(External)</i>"]
     W7["<b>Week 7</b><br/>Data Contract Enforcer<br/><i>Promise-Sentry</i>"]
 
-    W1 -->|"<b>outputs/week1/intent_records.jsonl</b><br/>{intent_id, description, code_refs[], governance_tags, created_at}<br/>Failure: No"| W2
+    W1 -.->|"<b>⚠ THEORETICAL</b><br/>outputs/week1/intent_records.jsonl<br/>{intent_id, description, code_refs[], governance_tags, created_at}<br/>Failure: No"| W2
 
-    W3 -->|"<b>outputs/week3/extractions.jsonl</b><br/>{doc_id, extracted_facts[], entities[], extraction_model, extracted_at}<br/>Failure: <b>Yes</b> — confidence scale ambiguity (0.0-1.0 vs 0-100)"| W4
+    W3 -.->|"<b>⚠ THEORETICAL</b><br/>outputs/week3/extractions.jsonl<br/>{doc_id, extracted_facts[], entities[], extraction_model, extracted_at}<br/>Failure: No — not implemented in practice"| W4
 
     W4 -->|"<b>outputs/week4/lineage_snapshots.jsonl</b><br/>{snapshot_id, codebase_root, git_commit, nodes[], edges[], captured_at}<br/>Failure: <b>Yes</b> — brownfield-cartographer self-scan produced 0 nodes"| W7
 
@@ -41,16 +41,18 @@ graph TD
 
 ## Summary of Interfaces
 
-| # | From | To | Data Path | Failure History |
-|---|------|----|-----------|-----------------|
-| 1 | Week 1 Intent Correlator | Week 2 Digital Courtroom | `outputs/week1/intent_records.jsonl` | No |
-| 2 | Week 3 Document Refinery | Week 4 Brownfield Cartographer | `outputs/week3/extractions.jsonl` | **Yes** — confidence scale 0.0-1.0 vs 0-100 ambiguity |
-| 3 | Week 4 Brownfield Cartographer | Week 7 Data Contract Enforcer | `outputs/week4/lineage_snapshots.jsonl` | **Yes** — self-scan produced 0 nodes |
-| 4 | Week 5 Event Sourcing Platform | Week 7 Data Contract Enforcer | `outputs/week5/events.jsonl` | **Yes** — `stream_id` → `aggregate_id` rename |
-| 5 | Week 1 Intent Correlator | Week 7 Data Contract Enforcer | `outputs/week1/intent_records.jsonl` | No |
-| 6 | Week 2 Digital Courtroom | Week 7 Data Contract Enforcer | `outputs/week2/verdicts.jsonl` | **Yes** — numeric score vs enum mismatch |
-| 7 | Week 3 Document Refinery | Week 7 Data Contract Enforcer | `outputs/week3/extractions.jsonl` | **Yes** — confidence scale ambiguity |
-| 8 | LangSmith | Week 7 Data Contract Enforcer | `outputs/traces/runs.jsonl` | No |
-| 9 | Weeks 2,3,5 agents | LangSmith | (trace telemetry) | No |
+| # | From | To | Data Path | Type | Failure History |
+|---|------|----|-----------|------|-----------------|
+| 1 | Week 1 Intent Correlator | Week 2 Digital Courtroom | `outputs/week1/intent_records.jsonl` | Theoretical | No |
+| 2 | Week 3 Document Refinery | Week 4 Brownfield Cartographer | `outputs/week3/extractions.jsonl` | Theoretical | No |
+| 3 | Week 4 Brownfield Cartographer | Week 7 Data Contract Enforcer | `outputs/week4/lineage_snapshots.jsonl` | **Real** | **Yes** — self-scan produced 0 nodes |
+| 4 | Week 5 Event Sourcing Platform | Week 7 Data Contract Enforcer | `outputs/week5/events.jsonl` | **Real** | **Yes** — `stream_id` → `aggregate_id` rename |
+| 5 | Week 1 Intent Correlator | Week 7 Data Contract Enforcer | `outputs/week1/intent_records.jsonl` | **Real** | No |
+| 6 | Week 2 Digital Courtroom | Week 7 Data Contract Enforcer | `outputs/week2/verdicts.jsonl` | **Real** | **Yes** — numeric score vs enum mismatch |
+| 7 | Week 3 Document Refinery | Week 7 Data Contract Enforcer | `outputs/week3/extractions.jsonl` | **Real** | **Yes** — confidence scale ambiguity |
+| 8 | LangSmith | Week 7 Data Contract Enforcer | `outputs/traces/runs.jsonl` | **Real** | No |
+| 9 | Weeks 2,3,5 agents | LangSmith | (trace telemetry) | **Real** | No |
 
 **Red-highlighted systems** (Week 3, Week 5) have caused the most interface failures and are prioritized for contract enforcement.
+
+> **Note on theoretical vs. real links:** The canonical challenge spec defines inter-system dependencies (e.g., Week 1 → Week 2, Week 3 → Week 4) as part of the target architecture. In practice, these links were not implemented — the Auditor (Week 2) does not consume Roo-Code intent records, and the Cartographer (Week 4) scans external codebases rather than PaperMind extraction output. These arrows are shown as dashed lines labelled "THEORETICAL" to distinguish them from the real data flows where Week 7 consumes all prior-week outputs directly. The contracts enforce the schemas as they exist today; the theoretical links indicate where future integration could formalize currently-absent dependencies.
