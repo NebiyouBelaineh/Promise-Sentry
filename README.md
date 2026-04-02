@@ -22,7 +22,7 @@ Copy the `.env` from your Week 5 veritas-stream project, or ensure `DATABASE_URL
 
 Set `OLLAMA_HOST` if Ollama is not at the default `http://172.29.96.1:11434`.
 
-## How to Run (5 Scripts End-to-End)
+## How to Run (6 Scripts End-to-End)
 
 ### 1. Generate contracts
 
@@ -44,10 +44,18 @@ python contracts/generator.py \
 
 **Expected:** `generated_contracts/week3_extractions.yaml` (14 clauses), `week5_events.yaml` (141 clauses), plus dbt schema.yml files and schema snapshots.
 
+Contracts are also generated for Weeks 1, 2, and 4:
+
+```bash
+python contracts/generator.py --source outputs/week1/intent_records.jsonl --contract-id week1-intent-records --output generated_contracts/
+python contracts/generator.py --source outputs/week2/verdicts.jsonl --contract-id week2-verdict-records --output generated_contracts/
+python contracts/generator.py --source outputs/week4/lineage_snapshots.jsonl --contract-id week4-brownfield-cartographer-lineage --output generated_contracts/
+```
+
 ### 2. Run validation
 
 ```bash
-# Week 3 (clean data)
+# Week 3 (clean data, AUDIT mode is default)
 python contracts/runner.py \
   --contract generated_contracts/week3_extractions.yaml \
   --data outputs/week3/extractions.jsonl \
@@ -58,9 +66,21 @@ python contracts/runner.py \
   --contract generated_contracts/week5_events.yaml \
   --data outputs/week5/events.jsonl \
   --output validation_reports/week5_db.json
+
+# Week 3 violated dataset (injected confidence 0-100 scale change)
+python contracts/runner.py \
+  --contract generated_contracts/week3_extractions.yaml \
+  --data outputs/week3/extractions_violated.jsonl \
+  --mode ENFORCE \
+  --output validation_reports/week3_violated.json
 ```
 
-**Expected:** Week 3: 47 checks, all PASS. Week 5: 299 checks (270 PASS, 29 FAIL on real findings: non-UUID payload IDs, boolean enum mismatches, hash pattern violations).
+**Expected:** Week 3 clean: 47 checks, all PASS. Week 5: 299 checks (270 PASS, 29 FAIL). Week 3 violated: 2 FAIL (CRITICAL range violation + HIGH statistical drift, z-score 1725.5).
+
+**Enforcement modes:**
+- `--mode AUDIT` (default): log everything, never block. All FAILs downgraded to WARN.
+- `--mode WARN`: block on CRITICAL only. HIGH/MEDIUM FAILs downgraded to WARN.
+- `--mode ENFORCE`: block on any CRITICAL or HIGH failure.
 
 ### 3. Attribute violations
 
@@ -68,11 +88,12 @@ python contracts/runner.py \
 python contracts/attributor.py \
   --report validation_reports/week5_db.json \
   --lineage outputs/week4/lineage_snapshots.jsonl \
+  --registry contract_registry/subscriptions.yaml \
   --repo-map week5=~/tenx/week5/veritas-stream \
   --output violation_log/violations.jsonl
 ```
 
-**Expected:** 29 violations written with blame chains (git commit, author) and blast radius from lineage graph.
+**Expected:** 29 violations written with ranked blame chains (git commit, author, confidence score) and blast radius from both the contract registry (subscriber list) and lineage graph (transitive downstream).
 
 ### 4. Analyze schema evolution
 
@@ -84,6 +105,15 @@ python contracts/schema_analyzer.py \
 
 **Expected:** Diffs the two most recent snapshots. Reports 6 changes (5 backward-compatible, 1 breaking), classification: BREAKING, with rollback plan.
 
+You can also diff specific snapshots:
+
+```bash
+python contracts/schema_analyzer.py \
+  --before schema_snapshots/week5-event-records/20260401_190655.yaml \
+  --after schema_snapshots/week5-event-records/20260402_104232.yaml \
+  --output schema_snapshots/evolution_report.json
+```
+
 ### 5. Run AI extensions
 
 ```bash
@@ -93,9 +123,12 @@ python contracts/ai_extensions.py \
   --output validation_reports/ai_extensions.json
 ```
 
-**Expected:** Three checks: embedding drift (PASS/BASELINE_SET), prompt input schema (PASS), output violation rate (PASS). First run sets embedding baseline; second run measures drift.
+**Expected:** Three checks run:
+- Embedding drift (PASS/BASELINE_SET): cosine distance of extracted_facts text centroids via Ollama nomic-embed-text:v1.5
+- Prompt input schema (PASS): validates extraction record structure
+- Output violation rate (PASS): tracks Week 2 verdict conformance
 
-Use `--skip-embeddings` if Ollama is not available.
+First run sets embedding baseline; second run measures drift. Use `--skip-embeddings` if Ollama is not available. Any WARN/FAIL results are automatically appended to `violation_log/violations.jsonl`.
 
 ### 6. Generate enforcer report
 
@@ -108,7 +141,12 @@ python contracts/report_generator.py \
   --output enforcer_report/report_data.json
 ```
 
-**Expected:** `enforcer_report/report_data.json` with data health score (0-100), top 3 violations in plain language, schema evolution summary, AI extension results, and recommendations.
+**Expected:** `enforcer_report/report_data.json` with:
+- Data health score (0-100): `(checks_passed / total_checks) * 100`, adjusted down by 20 points per CRITICAL violation
+- Top 3 violations in plain language
+- Schema evolution summary
+- AI extension results
+- Prioritized recommendations
 
 ## Run Tests
 
@@ -116,7 +154,7 @@ python contracts/report_generator.py \
 pytest tests/ -v
 ```
 
-All tests run without external dependencies (Ollama calls are mocked).
+129 tests across 5 test files. All tests run without external dependencies (Ollama calls are mocked).
 
 ## Repository Structure
 
@@ -124,24 +162,26 @@ All tests run without external dependencies (Ollama calls are mocked).
 Promise-Sentry/
 ├── contracts/
 │   ├── generator.py           # ContractGenerator: profiles data, produces Bitol YAML + dbt
-│   ├── runner.py              # ValidationRunner: structural + statistical + cross-column checks
-│   ├── attributor.py          # ViolationAttributor: git blame + lineage traversal + blast radius
+│   ├── runner.py              # ValidationRunner: structural + statistical checks, 3 modes
+│   ├── attributor.py          # ViolationAttributor: registry + lineage + git blame
 │   ├── schema_analyzer.py     # SchemaEvolutionAnalyzer: diff, classify, rollback plan
 │   ├── ai_extensions.py       # AI extensions: embedding drift, prompt schema, output violations
 │   └── report_generator.py    # ReportGenerator: health score + plain-language enforcer report
-├── generated_contracts/       # Auto-generated Bitol YAML + dbt schema.yml
+├── contract_registry/
+│   └── subscriptions.yaml     # Who subscribes to which contract and breaking fields
+├── generated_contracts/       # Auto-generated Bitol YAML + dbt schema.yml (weeks 1-5)
 ├── validation_reports/        # Structured validation report JSON
-├── violation_log/             # Attributed violation records (JSONL)
+├── violation_log/             # Attributed violation records (JSONL, 31 total)
 ├── enforcer_report/           # Auto-generated enforcer report
-├── schema_snapshots/          # Timestamped schema snapshots + baselines
+├── schema_snapshots/          # Timestamped schema snapshots + baselines (2+ per contract)
 ├── outputs/                   # Canonical JSONL data from Weeks 1-5
 │   ├── migrate/               # Migration scripts from prior-week formats
 │   ├── week1/                 # intent_records.jsonl (6 records)
 │   ├── week2/                 # verdicts.jsonl (6 records)
-│   ├── week3/                 # extractions.jsonl (1,096 records, 28K+ facts)
+│   ├── week3/                 # extractions.jsonl (1,096 records) + extractions_violated.jsonl
 │   ├── week4/                 # lineage_snapshots.jsonl (5 snapshots, 2,215 nodes)
 │   └── week5/                 # events.jsonl (2,542 records from PostgreSQL)
-├── tests/                     # pytest test suite (111 tests)
+├── tests/                     # pytest test suite (129 tests)
 ├── DOMAIN_NOTES.md            # Phase 0 domain reconnaissance
 └── docs/                      # Reports, diagrams, guides
 ```
