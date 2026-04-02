@@ -1,0 +1,43 @@
+{
+  "report_id": "cc7a10a5-25ef-45fb-af21-4f0af3f59232",
+  "run_timestamp": "2026-04-02T20:01:48.562067+00:00",
+  "extensions_run": 3,
+  "results": [
+    {
+      "check_id": "ai.embedding_drift",
+      "check_type": "embedding_drift",
+      "status": "PASS",
+      "severity": "LOW",
+      "drift_score": 0.0,
+      "cosine_similarity": 1.0,
+      "threshold": 0.15,
+      "sample_count": 200,
+      "embedding_dim": 768,
+      "message": "Drift score: 0.0000 (threshold: 0.15). Content semantically stable."
+    },
+    {
+      "check_id": "ai.prompt_input_schema",
+      "check_type": "prompt_input_schema",
+      "status": "PASS",
+      "severity": "LOW",
+      "total_records": 1096,
+      "violations_found": 0,
+      "violation_rate": 0.0,
+      "sample_violations": [],
+      "message": "0 input schema violations across 1096 records (rate: 0.00%)."
+    },
+    {
+      "check_id": "ai.output_schema_violation_rate",
+      "check_type": "output_schema_violation_rate",
+      "status": "PASS",
+      "severity": "LOW",
+      "total_records": 6,
+      "violations_found": 0,
+      "violation_rate": 0.0,
+      "baseline_rate": null,
+      "trend": "stable",
+      "sample_violations": [],
+      "message": "Output schema violation rate: 0.00% (0/6 records). Trend: stable."
+    }
+  ]
+}
