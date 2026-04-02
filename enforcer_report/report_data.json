@@ -1,0 +1,80 @@
+{
+  "report_id": "5547b7b9-a379-4177-9ff2-357638dba6b0",
+  "generated_at": "2026-04-02T20:09:37.680294+00:00",
+  "data_health_score": 61.7,
+  "validation_summary": {
+    "reports_analyzed": 4,
+    "total_checks": 679,
+    "passed": 623,
+    "failed": 56,
+    "warned": 0,
+    "pass_rate": 0.9175
+  },
+  "top_violations": [
+    {
+      "check_id": "payload_applicant_id.uuid",
+      "severity": "CRITICAL",
+      "message": "payload_applicant_id has 43 values not matching UUID pattern.",
+      "records_affected": 43,
+      "plain_language": "The 'applicant id' field contains 43 values that don't follow the expected identifier format. Systems that rely on this format for lookups or joins will fail silently."
+    },
+    {
+      "check_id": "payload_application_id.uuid",
+      "severity": "CRITICAL",
+      "message": "payload_application_id has 642 values not matching UUID pattern.",
+      "records_affected": 642,
+      "plain_language": "The 'application id' field contains 642 values that don't follow the expected identifier format. Systems that rely on this format for lookups or joins will fail silently."
+    },
+    {
+      "check_id": "metadata_user_id.uuid",
+      "severity": "CRITICAL",
+      "message": "metadata_user_id has 2542 values not matching UUID pattern.",
+      "records_affected": 2542,
+      "plain_language": "The 'user id' field contains 2542 values that don't follow the expected identifier format. Systems that rely on this format for lookups or joins will fail silently."
+    }
+  ],
+  "total_violations": 29,
+  "schema_evolution": {
+    "classification": "breaking",
+    "verdict": "BREAKING",
+    "total_changes": 6,
+    "breaking_changes": 1,
+    "summary": "1 breaking change(s) detected: Enum values removed: ['applicant'] 5 backward-compatible change(s). Deployment requires coordinated migration of all consumers.",
+    "rollback_needed": true
+  },
+  "ai_extensions": {
+    "extensions": [
+      {
+        "check": "ai.embedding_drift",
+        "status": "PASS",
+        "message": "Drift score: 0.0000 (threshold: 0.15). Content semantically stable.",
+        "drift_score": 0.0,
+        "violation_rate": null
+      },
+      {
+        "check": "ai.prompt_input_schema",
+        "status": "PASS",
+        "message": "0 input schema violations across 1096 records (rate: 0.00%).",
+        "drift_score": null,
+        "violation_rate": 0.0
+      },
+      {
+        "check": "ai.output_schema_violation_rate",
+        "status": "PASS",
+        "message": "Output schema violation rate: 0.00% (0/6 records). Trend: stable.",
+        "drift_score": null,
+        "violation_rate": 0.0
+      }
+    ]
+  },
+  "recommendations": [
+    "24 CRITICAL violations found. Review identifier formats and enum values across event types to prevent silent downstream failures.",
+    "Breaking schema changes detected. Coordinate with downstream consumers before deploying. See rollback plan in evolution report."
+  ],
+  "contracts_evaluated": [
+    "week3-document-refinery-extractions",
+    "week3-document-refinery-extractions",
+    "week5-event-records",
+    "week5-event-records"
+  ]
+}
