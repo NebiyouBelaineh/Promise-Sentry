@@ -1,13 +1,15 @@
 """ViolationAttributor — Traces contract violations to root causes.
 
-Reads validation report failures, traverses the Week 4 lineage graph
-for blast radius, and runs git blame against source repositories to
+Reads validation report failures, queries the contract registry for
+subscriber blast radius, traverses the Week 4 lineage graph for
+enrichment, and runs git blame against source repositories to
 identify the commit that introduced the violation.
 
 Usage:
     python contracts/attributor.py \
         --report validation_reports/week5_db.json \
         --lineage outputs/week4/lineage_snapshots.jsonl \
+        --registry contract_registry/subscriptions.yaml \
         --repo-map week5=~/tenx/week5/veritas-stream \
         --output violation_log/violations.jsonl
 """
@@ -18,6 +20,8 @@ import uuid
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+import yaml
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +118,72 @@ def compute_blast_radius(node_id, nodes, edges):
         "downstream": downstream[:10],
         "upstream": upstream[:10],
     }
+
+
+# ---------------------------------------------------------------------------
+# Contract registry
+# ---------------------------------------------------------------------------
+
+def load_registry(path):
+    """Load the contract registry subscriptions YAML."""
+    if not path or not Path(path).exists():
+        return []
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return data.get("subscriptions", [])
+
+
+def registry_blast_radius(contract_id, failing_field, subscriptions):
+    """Query registry for subscribers affected by a breaking field change.
+
+    This is the primary blast radius source. The lineage graph is
+    enrichment only, not a replacement.
+    """
+    affected = []
+    for sub in subscriptions:
+        if sub.get("contract_id") != contract_id:
+            continue
+        breaking = sub.get("breaking_fields", [])
+        # Normalize: underscores and dots are equivalent for matching
+        norm_field = failing_field.replace("_", ".").replace("payload.", "").replace("metadata.", "")
+        field_match = any(
+            norm_field in bf.get("field", "").replace("_", ".")
+            or bf.get("field", "").replace("_", ".") in norm_field
+            for bf in breaking
+        )
+        field_consumed = failing_field.replace("payload_", "").replace("metadata_", "").replace("_", ".") in str(
+            sub.get("fields_consumed", [])
+        ).replace("_", ".")
+        if field_match or field_consumed:
+            affected.append({
+                "subscriber_id": sub.get("subscriber_id"),
+                "subscriber_team": sub.get("subscriber_team"),
+                "fields_consumed": sub.get("fields_consumed"),
+                "breaking_reason": next(
+                    (bf.get("reason") for bf in breaking
+                     if failing_field in bf.get("field", "") or bf.get("field", "") in failing_field),
+                    None
+                ),
+                "validation_mode": sub.get("validation_mode"),
+                "contact": sub.get("contact"),
+            })
+    return affected
+
+
+# ---------------------------------------------------------------------------
+# Blame confidence scoring
+# ---------------------------------------------------------------------------
+
+def compute_blame_confidence(days_since_commit, lineage_hops=0):
+    """Compute blame confidence per spec formula.
+
+    base = 1.0 - (days_since_commit * 0.1)
+    Reduce by 0.2 for each lineage hop.
+    Clamp to [0.05, 1.0].
+    """
+    base = 1.0 - (days_since_commit * 0.1)
+    score = base - (lineage_hops * 0.2)
+    return round(max(min(score, 1.0), 0.05), 2)
 
 
 # ---------------------------------------------------------------------------
@@ -259,16 +329,31 @@ def infer_source_files(check_result, contract_id):
     return files
 
 
-def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
+def attribute_violation(check_result, contract_id, repo_path, nodes, edges,
+                        subscriptions=None):
     """Attribute a single violation to its root cause.
 
     Precondition: check_result has status == 'FAIL'.
     Guarantee: returns a violation record with blame chain and blast radius.
+
+    Blast radius is computed in two steps:
+    1. Registry query (primary): find subscribers of this contract whose
+       breaking_fields include the failing column.
+    2. Lineage traversal (enrichment): find transitive downstream nodes
+       from the lineage graph to add contamination depth.
     """
     col_name = check_result.get("column_name", "unknown")
     check_id = check_result.get("check_id", "unknown")
+    now = datetime.now(timezone.utc)
 
-    # Find relevant lineage nodes
+    # Step 1: Registry blast radius (primary)
+    registry_affected = []
+    if subscriptions:
+        registry_affected = registry_blast_radius(
+            contract_id, col_name, subscriptions
+        )
+
+    # Step 2: Lineage traversal (enrichment)
     matching_nodes = []
     for nid, node in nodes.items():
         node_label = node.get("label", "").lower()
@@ -278,12 +363,11 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
         elif col_name.lower().replace("payload_", "").replace("metadata_", "") in node_path:
             matching_nodes.append(nid)
 
-    # Compute blast radius from first matching node (or use contract-level estimate)
-    blast = None
+    lineage_blast = None
     if matching_nodes:
-        blast = compute_blast_radius(matching_nodes[0], nodes, edges)
+        lineage_blast = compute_blast_radius(matching_nodes[0], nodes, edges)
     else:
-        blast = {
+        lineage_blast = {
             "downstream_nodes": 0,
             "upstream_nodes": 0,
             "total_graph_nodes": len(nodes),
@@ -292,12 +376,22 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
             "upstream": [],
         }
 
-    # Git blame
+    # Merge blast radius: registry is authoritative, lineage enriches
+    blast = {
+        "registry_subscribers": registry_affected,
+        "registry_subscriber_count": len(registry_affected),
+        "lineage_downstream_nodes": lineage_blast["downstream_nodes"],
+        "lineage_upstream_nodes": lineage_blast["upstream_nodes"],
+        "total_graph_nodes": lineage_blast["total_graph_nodes"],
+        "impact_ratio": lineage_blast["impact_ratio"],
+        "estimated_records": check_result.get("records_failing", 0),
+    }
+
+    # Step 3: Git blame for cause attribution
     blame_chain = []
     source_files = infer_source_files(check_result, contract_id)
 
     if repo_path:
-        # Search git log for commits related to the column
         search_terms = [
             col_name.replace("payload_", "").replace("metadata_", ""),
             check_result.get("check_type", ""),
@@ -305,6 +399,7 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
         for term in search_terms:
             commits = git_log_search(repo_path, term, max_results=3)
             for c in commits:
+                # Compute days since commit for confidence scoring
                 blame_chain.append({
                     "commit": c["commit"],
                     "message": c["message"],
@@ -312,7 +407,6 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
                     "search_term": term,
                 })
 
-        # Blame specific files
         for fpath in source_files:
             entries = git_blame_file(repo_path, fpath)
             for entry in entries[:3]:
@@ -325,7 +419,6 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
                     "file": fpath,
                 })
 
-        # Recent commits on related files as fallback
         if not blame_chain:
             for fpath in source_files:
                 commits = git_recent_commits(repo_path, fpath, max_results=3)
@@ -337,14 +430,29 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
                         "file": fpath,
                     })
 
-    # Deduplicate blame chain by commit hash
+    # Deduplicate and add confidence scores + rank
     seen = set()
     unique_blame = []
     for entry in blame_chain:
         commit = entry.get("commit", "")
         if commit and commit not in seen:
             seen.add(commit)
+            # Parse author_time for confidence calculation
+            days_ago = 7  # default assumption
+            author_time = entry.get("author_time")
+            if author_time:
+                try:
+                    commit_dt = datetime.fromtimestamp(int(author_time), tz=timezone.utc)
+                    days_ago = (now - commit_dt).days
+                except (ValueError, OSError):
+                    pass
+            entry["confidence_score"] = compute_blame_confidence(days_ago)
             unique_blame.append(entry)
+
+    # Sort by confidence descending, limit to 5
+    unique_blame.sort(key=lambda e: e.get("confidence_score", 0), reverse=True)
+    for rank, entry in enumerate(unique_blame[:5], 1):
+        entry["rank"] = rank
 
     return {
         "violation_id": str(uuid.uuid4()),
@@ -356,8 +464,8 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges):
         "records_failing": check_result.get("records_failing", 0),
         "sample_failing": check_result.get("sample_failing", [])[:5],
         "contract_id": contract_id,
-        "attributed_at": datetime.now(timezone.utc).isoformat(),
-        "blame_chain": unique_blame[:10],
+        "detected_at": now.isoformat(),
+        "blame_chain": unique_blame[:5],
         "blast_radius": blast,
         "source_files": source_files,
         "lineage_nodes_matched": matching_nodes[:5],
@@ -386,6 +494,10 @@ def main():
         help="Path to Week 4 lineage_snapshots.jsonl"
     )
     parser.add_argument(
+        "--registry", default="contract_registry/subscriptions.yaml",
+        help="Path to contract registry subscriptions YAML"
+    )
+    parser.add_argument(
         "--repo-map", nargs="*", default=[],
         help="Mapping of data source to repo path (e.g. week5=~/tenx/week5/veritas-stream)"
     )
@@ -410,6 +522,10 @@ def main():
     nodes, edges = load_lineage(args.lineage)
     print(f"  {len(nodes)} nodes, {len(edges)} edges loaded")
 
+    print("Loading contract registry...")
+    subscriptions = load_registry(args.registry)
+    print(f"  {len(subscriptions)} subscriptions loaded")
+
     repo_map = parse_repo_map(args.repo_map)
     repo_path = resolve_repo_for_contract(contract_id, repo_map)
     if repo_path:
@@ -420,14 +536,17 @@ def main():
     print("\nAttributing violations...")
     violations = []
     for fail in failures:
-        v = attribute_violation(fail, contract_id, repo_path, nodes, edges)
+        v = attribute_violation(fail, contract_id, repo_path, nodes, edges,
+                                subscriptions=subscriptions)
         violations.append(v)
         blame_count = len(v["blame_chain"])
-        downstream = v["blast_radius"]["downstream_nodes"]
+        reg_subs = v["blast_radius"]["registry_subscriber_count"]
+        lineage_dn = v["blast_radius"]["lineage_downstream_nodes"]
         print(
             f"  {v['check_id']:50s} "
             f"blame={blame_count:2d} commits  "
-            f"blast={downstream:3d} downstream"
+            f"registry={reg_subs:d} subs  "
+            f"lineage={lineage_dn:3d} downstream"
         )
 
     # Write violation log

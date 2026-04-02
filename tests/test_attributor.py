@@ -7,9 +7,12 @@ import pytest
 
 from contracts.attributor import (
     load_lineage,
+    load_registry,
     find_downstream,
     find_upstream,
     compute_blast_radius,
+    compute_blame_confidence,
+    registry_blast_radius,
     parse_repo_map,
     resolve_repo_for_contract,
     infer_source_files,
@@ -228,10 +231,125 @@ class TestAttributeViolation:
             SAMPLE_FAILURE, "week5-event-records", None, {}, []
         )
         assert result["blame_chain"] == []
-        assert result["blast_radius"]["downstream_nodes"] == 0
+        assert result["blast_radius"]["lineage_downstream_nodes"] == 0
+
+    def test_includes_registry_subscribers(self):
+        subs = [
+            {
+                "contract_id": "week5-event-records",
+                "subscriber_id": "week7-enforcer",
+                "subscriber_team": "week7",
+                "fields_consumed": ["application_id"],
+                "breaking_fields": [
+                    {"field": "application_id", "reason": "join key"}
+                ],
+                "validation_mode": "WARN",
+                "contact": "team@org.com",
+            }
+        ]
+        result = attribute_violation(
+            SAMPLE_FAILURE, "week5-event-records", None, {}, [],
+            subscriptions=subs,
+        )
+        assert result["blast_radius"]["registry_subscriber_count"] == 1
+        assert result["blast_radius"]["registry_subscribers"][0]["subscriber_id"] == "week7-enforcer"
 
 
 class TestGitRecentCommits:
     def test_returns_list_on_invalid_repo(self):
         result = git_recent_commits("/nonexistent/repo")
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Registry tests
+# ---------------------------------------------------------------------------
+
+SAMPLE_SUBSCRIPTIONS = [
+    {
+        "contract_id": "week5-event-records",
+        "subscriber_id": "week7-enforcer",
+        "subscriber_team": "week7",
+        "fields_consumed": ["event_id", "event_type", "payload"],
+        "breaking_fields": [
+            {"field": "event_type", "reason": "routing"},
+            {"field": "payload", "reason": "parsing"},
+        ],
+        "validation_mode": "WARN",
+        "contact": "team@org.com",
+    },
+    {
+        "contract_id": "week3-document-refinery-extractions",
+        "subscriber_id": "week4-cartographer",
+        "subscriber_team": "week4",
+        "fields_consumed": ["doc_id", "extracted_facts"],
+        "breaking_fields": [
+            {"field": "extracted_facts.confidence", "reason": "ranking"},
+        ],
+        "validation_mode": "ENFORCE",
+        "contact": "team@org.com",
+    },
+]
+
+
+class TestRegistryBlastRadius:
+    def test_finds_matching_subscribers(self):
+        result = registry_blast_radius(
+            "week5-event-records", "payload_event_type", SAMPLE_SUBSCRIPTIONS
+        )
+        assert len(result) == 1
+        assert result[0]["subscriber_id"] == "week7-enforcer"
+
+    def test_no_match_returns_empty(self):
+        result = registry_blast_radius(
+            "week99-unknown", "some_field", SAMPLE_SUBSCRIPTIONS
+        )
+        assert result == []
+
+    def test_matches_on_breaking_field(self):
+        result = registry_blast_radius(
+            "week3-document-refinery-extractions",
+            "extracted_facts_confidence",
+            SAMPLE_SUBSCRIPTIONS,
+        )
+        assert len(result) == 1
+        assert result[0]["subscriber_id"] == "week4-cartographer"
+
+
+class TestLoadRegistry:
+    def test_loads_yaml(self, tmp_path):
+        p = tmp_path / "subs.yaml"
+        p.write_text("subscriptions:\n  - contract_id: test\n    subscriber_id: s1\n")
+        result = load_registry(str(p))
+        assert len(result) == 1
+
+    def test_missing_file(self):
+        result = load_registry("/nonexistent.yaml")
+        assert result == []
+
+    def test_none_path(self):
+        result = load_registry(None)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Blame confidence tests
+# ---------------------------------------------------------------------------
+
+class TestComputeBlameConfidence:
+    def test_recent_commit_high_confidence(self):
+        assert compute_blame_confidence(0) == 1.0
+
+    def test_old_commit_low_confidence(self):
+        assert compute_blame_confidence(10) == 0.05
+
+    def test_lineage_hops_reduce(self):
+        no_hops = compute_blame_confidence(2)
+        with_hops = compute_blame_confidence(2, lineage_hops=2)
+        assert with_hops < no_hops
+
+    def test_never_below_minimum(self):
+        assert compute_blame_confidence(100, lineage_hops=10) == 0.05
+
+    def test_never_above_one(self):
+        assert compute_blame_confidence(-5) == 1.0
