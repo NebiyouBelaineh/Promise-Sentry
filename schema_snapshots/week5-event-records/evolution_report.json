@@ -1,0 +1,93 @@
+{
+  "analyzed_at": "2026-04-02T19:44:21.428619+00:00",
+  "contract_id": "week5-event-records",
+  "before_snapshot": "schema_snapshots/week5-event-records/20260401_190655.yaml",
+  "after_snapshot": "schema_snapshots/week5-event-records/20260402_104232.yaml",
+  "before_version": "1.0.0",
+  "after_version": "1.0.0",
+  "total_changes": 6,
+  "breaking_changes": 1,
+  "backward_compatible_changes": 5,
+  "forward_compatible_changes": 0,
+  "classification": "breaking",
+  "verdict": "BREAKING",
+  "changes": [
+    {
+      "column": "payload_assigned_to",
+      "change_type": "column_added",
+      "compatibility": "backward",
+      "detail": "New column 'payload_assigned_to' added (optional; safe)",
+      "before": null,
+      "after": {
+        "type": "number"
+      }
+    },
+    {
+      "column": "payload_decision_event_id",
+      "change_type": "column_added",
+      "compatibility": "backward",
+      "detail": "New column 'payload_decision_event_id' added (optional; safe)",
+      "before": null,
+      "after": {
+        "type": "string",
+        "format": "uuid",
+        "enum": [
+          "sess-dec-c3716d6b"
+        ]
+      }
+    },
+    {
+      "column": "payload_reason",
+      "change_type": "column_added",
+      "compatibility": "backward",
+      "detail": "New column 'payload_reason' added (optional; safe)",
+      "before": null,
+      "after": {
+        "type": "string",
+        "enum": [
+          "Automated referral: confidence threshold not met"
+        ]
+      }
+    },
+    {
+      "column": "payload_triggered_by_event_id",
+      "change_type": "column_added",
+      "compatibility": "backward",
+      "detail": "New column 'payload_triggered_by_event_id' added (optional; safe)",
+      "before": null,
+      "after": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    {
+      "column": "metadata_correlation_id",
+      "change_type": "required_changed",
+      "compatibility": "backward",
+      "detail": "'metadata_correlation_id' changed from required to optional",
+      "before": true,
+      "after": false
+    },
+    {
+      "column": "metadata_user_id",
+      "change_type": "enum_values_removed",
+      "compatibility": "breaking",
+      "detail": "Enum values removed: ['applicant']",
+      "before": [
+        "applicant",
+        "system"
+      ],
+      "after": [
+        "system"
+      ]
+    }
+  ],
+  "rollback_plan": {
+    "needed": true,
+    "steps": [
+      "Restore removed enum values for 'metadata_user_id': ['applicant', 'system']",
+      "Revert to snapshot: schema_snapshots/week5-event-records/20260401_190655.yaml"
+    ]
+  },
+  "summary": "1 breaking change(s) detected: Enum values removed: ['applicant'] 5 backward-compatible change(s). Deployment requires coordinated migration of all consumers."
+}
