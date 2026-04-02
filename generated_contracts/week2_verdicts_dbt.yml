@@ -1,0 +1,54 @@
+version: 2
+models:
+- name: verdicts
+  description: dbt schema for week2-verdict-records
+  columns:
+  - name: verdict_id
+    tests:
+    - not_null
+    - unique
+  - name: target_ref
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - https://github.com/NebiyouBelaineh/LangGraph-Automation-Auditor
+        - ''
+        - https://github.com/Bnobody47/The-Auditor
+  - name: rubric_id
+    tests:
+    - not_null
+    - unique
+    - accepted_values:
+        values:
+        - d1a3f2267d377ea73837872e0e1c87e9c4f01ba7251e3c969cb1fe1f05ea19b3
+  - name: rubric_version
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 1.0.0
+  - name: overall_verdict
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - PASS
+        - WARN
+  - name: overall_score
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - '3.5'
+        - '3.6'
+        - '3.7'
+        - '2.7'
+  - name: confidence
+    tests:
+    - not_null
+    - dbt_utils.expression_is_true:
+        expression: confidence >= 0.0 AND confidence <= 1.0
+  - name: evaluated_at
+    tests:
+    - not_null

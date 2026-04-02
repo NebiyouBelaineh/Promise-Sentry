@@ -1,0 +1,93 @@
+kind: DataContract
+apiVersion: v3.0.0
+id: week1-intent-records
+info:
+  title: Week 1 — Intent Records
+  version: 1.0.0
+  owner: week1-team
+  description: Auto-generated contract for intent_records. Each record represents
+    one unit of output from the Week 1 system.
+servers:
+  local:
+    type: local
+    path: outputs/week1/intent_records.jsonl
+    format: jsonl
+terms:
+  usage: Internal inter-system data contract. Do not publish.
+  limitations: Confidence fields must remain in 0.0-1.0 float range.
+schema:
+  intent_id:
+    type: string
+    required: true
+    format: uuid
+    pattern: ^[0-9a-f-]{36}$
+    description: Identifier field (string). Required — must not be null.
+    unique: true
+  description:
+    type: string
+    required: true
+    enum:
+    - INT-WEATHER
+    - INT-CI
+    - INT-DOCS
+    description: Description field. Required — must not be null.
+  created_at:
+    type: string
+    required: true
+    format: date-time
+    description: Timestamp in ISO 8601 format. Required — must not be null.
+  code_refs_file:
+    type: string
+    required: true
+    enum:
+    - src/weather-config.ts
+    - .github/workflows/lint.yml
+    - docs/weather-api-usage.md
+    - src/weather.ts
+    - Dockerfile
+    description: Code Refs File field. Required — must not be null.
+  code_refs_line_start:
+    type: integer
+    required: true
+    minimum: 0
+    description: 'Code Refs Line Start field. Required — must not be null. Observed
+      range: [1.00, 1.00], mean=1.00.'
+  code_refs_line_end:
+    type: integer
+    required: true
+    minimum: 0
+    description: 'Code Refs Line End field. Required — must not be null. Observed
+      range: [2.00, 19.00], mean=10.17.'
+  code_refs_symbol:
+    type: string
+    required: true
+    enum:
+    - claude-haiku-4-5-20251001
+    description: Code Refs Symbol field. Required — must not be null.
+  code_refs_confidence:
+    type: number
+    required: true
+    minimum: 0.0
+    maximum: 1.0
+    description: Confidence score. Must remain 0.0-1.0 float. BREAKING if changed
+      to 0-100.
+constraints: []
+quality:
+  type: SodaChecks
+  specification:
+    checks for intent_records:
+    - missing_count(intent_id) = 0
+    - duplicate_count(intent_id) = 0
+    - missing_count(description) = 0
+    - missing_count(created_at) = 0
+    - missing_count(code_refs_file) = 0
+    - missing_count(code_refs_line_start) = 0
+    - missing_count(code_refs_line_end) = 0
+    - missing_count(code_refs_symbol) = 0
+    - missing_count(code_refs_confidence) = 0
+    - min(code_refs_confidence) >= 0.0
+    - max(code_refs_confidence) <= 1.0
+    - row_count >= 1
+lineage:
+  upstream: []
+  downstream: []

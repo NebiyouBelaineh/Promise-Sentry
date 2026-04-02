@@ -1,0 +1,63 @@
+version: 2
+models:
+- name: intent_records
+  description: dbt schema for week1-intent-records
+  columns:
+  - name: intent_id
+    tests:
+    - not_null
+    - unique
+  - name: description
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - INT-WEATHER
+        - INT-CI
+        - INT-DOCS
+  - name: created_at
+    tests:
+    - not_null
+  - name: code_refs_file
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - src/weather-config.ts
+        - .github/workflows/lint.yml
+        - docs/weather-api-usage.md
+        - src/weather.ts
+        - Dockerfile
+  - name: code_refs_line_start
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - '1'
+  - name: code_refs_line_end
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - '2'
+        - '14'
+        - '4'
+        - '18'
+        - '19'
+  - name: code_refs_symbol
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - claude-haiku-4-5-20251001
+  - name: code_refs_confidence
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - '0.96'
+        - '0.9'
+        - '0.9299999999999999'
+        - '0.98'
+    - dbt_utils.expression_is_true:
+        expression: code_refs_confidence >= 0.0 AND code_refs_confidence <= 1.0
