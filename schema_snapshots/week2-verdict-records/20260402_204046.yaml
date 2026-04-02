@@ -1,0 +1,95 @@
+kind: DataContract
+apiVersion: v3.0.0
+id: week2-verdict-records
+info:
+  title: Week 2 — Verdicts
+  version: 1.0.0
+  owner: week2-team
+  description: Auto-generated contract for verdicts. Each record represents one unit
+    of output from the Week 2 system.
+servers:
+  local:
+    type: local
+    path: outputs/week2/verdicts.jsonl
+    format: jsonl
+terms:
+  usage: Internal inter-system data contract. Do not publish.
+  limitations: Confidence fields must remain in 0.0-1.0 float range.
+schema:
+  verdict_id:
+    type: string
+    required: true
+    format: uuid
+    pattern: ^[0-9a-f-]{36}$
+    description: Identifier field (string). Required — must not be null.
+    unique: true
+  target_ref:
+    type: string
+    required: true
+    enum:
+    - https://github.com/NebiyouBelaineh/LangGraph-Automation-Auditor
+    - ''
+    - https://github.com/Bnobody47/The-Auditor
+    description: Target Ref field. Required — must not be null.
+  rubric_id:
+    type: string
+    required: true
+    format: uuid
+    pattern: ^[0-9a-f-]{36}$
+    enum:
+    - d1a3f2267d377ea73837872e0e1c87e9c4f01ba7251e3c969cb1fe1f05ea19b3
+    description: Identifier field (string). Required — must not be null.
+    unique: true
+  rubric_version:
+    type: string
+    required: true
+    enum:
+    - 1.0.0
+    description: Version identifier. Required — must not be null.
+  overall_verdict:
+    type: string
+    required: true
+    enum:
+    - PASS
+    - WARN
+    pattern: ^[A-Z][a-zA-Z0-9]+$
+    description: PascalCase identifier.
+  overall_score:
+    type: number
+    required: true
+    minimum: 0
+    description: 'Numeric score. Required — must not be null. Observed range: [2.70,
+      3.70], mean=3.45.'
+  confidence:
+    type: number
+    required: true
+    minimum: 0.0
+    maximum: 1.0
+    description: Confidence score. Must remain 0.0-1.0 float. BREAKING if changed
+      to 0-100.
+  evaluated_at:
+    type: string
+    required: true
+    format: date-time
+    description: Timestamp in ISO 8601 format. Required — must not be null.
+constraints: []
+quality:
+  type: SodaChecks
+  specification:
+    checks for verdicts:
+    - missing_count(verdict_id) = 0
+    - duplicate_count(verdict_id) = 0
+    - missing_count(target_ref) = 0
+    - missing_count(rubric_id) = 0
+    - duplicate_count(rubric_id) = 0
+    - missing_count(rubric_version) = 0
+    - missing_count(overall_verdict) = 0
+    - missing_count(overall_score) = 0
+    - missing_count(confidence) = 0
+    - min(confidence) >= 0.0
+    - max(confidence) <= 1.0
+    - missing_count(evaluated_at) = 0
+    - row_count >= 1
+lineage:
+  upstream: []
+  downstream: []

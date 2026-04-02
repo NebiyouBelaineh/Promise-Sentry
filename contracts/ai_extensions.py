@@ -412,6 +412,28 @@ def main():
     else:
         print(f"Week 2 data not found at {args.week2}, skipping extension 3")
 
+    # Write any WARN/FAIL results to violation log
+    violation_log_path = Path("violation_log/violations.jsonl")
+    warn_fail = [r for r in results if r.get("status") in ("WARN", "FAIL")]
+    if warn_fail:
+        violation_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(violation_log_path, "a") as vf:
+            for r in warn_fail:
+                violation = {
+                    "violation_id": str(uuid.uuid4()),
+                    "check_id": r.get("check_id"),
+                    "check_type": r.get("check_type"),
+                    "severity": r.get("severity", "MEDIUM"),
+                    "message": r.get("message"),
+                    "detected_at": datetime.now(timezone.utc).isoformat(),
+                    "source": "ai_extensions",
+                    "drift_score": r.get("drift_score"),
+                    "violation_rate": r.get("violation_rate"),
+                    "trend": r.get("trend"),
+                }
+                vf.write(json.dumps(violation, default=str) + "\n")
+        print(f"\n  Wrote {len(warn_fail)} AI violations to {violation_log_path}")
+
     # Write report
     report = {
         "report_id": str(uuid.uuid4()),

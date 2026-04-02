@@ -624,14 +624,44 @@ def write_baselines(df):
     print(f"  Baselines written to {baselines_path}")
 
 
+def apply_mode(results, mode):
+    """Apply enforcement mode to validation results.
+
+    AUDIT: log everything, never block. All FAILs downgraded to WARN.
+    WARN: block on CRITICAL only. HIGH/MEDIUM FAILs downgraded to WARN.
+    ENFORCE: block on any CRITICAL or HIGH failure. No downgrades.
+    """
+    if mode == "ENFORCE":
+        return results
+
+    adjusted = []
+    for r in results:
+        r = dict(r)
+        if r["status"] == "FAIL":
+            if mode == "AUDIT":
+                r["status"] = "WARN"
+                r["mode_note"] = "Downgraded from FAIL (AUDIT mode)"
+            elif mode == "WARN":
+                if r.get("severity") not in ("CRITICAL",):
+                    r["status"] = "WARN"
+                    r["mode_note"] = "Downgraded from FAIL (WARN mode; only CRITICAL blocks)"
+        adjusted.append(r)
+    return adjusted
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run contract validation on JSONL data")
     parser.add_argument("--contract", required=True, help="Path to contract YAML")
     parser.add_argument("--data", required=True, help="Path to JSONL data file")
     parser.add_argument("--output", required=True, help="Output path for validation report JSON")
+    parser.add_argument(
+        "--mode", choices=["AUDIT", "WARN", "ENFORCE"], default="AUDIT",
+        help="Enforcement mode: AUDIT (log only), WARN (block CRITICAL), ENFORCE (block CRITICAL+HIGH)"
+    )
     args = parser.parse_args()
 
     print(f"Loading contract from {args.contract}...")
+    print(f"  Mode: {args.mode}")
     with open(args.contract) as f:
         contract = yaml.safe_load(f)
 
@@ -671,6 +701,9 @@ def main():
         cc_results = check_cross_column_constraints(constraints, df, records)
         results.extend(cc_results)
 
+    # Apply enforcement mode
+    results = apply_mode(results, args.mode)
+
     # Tally results
     passed = sum(1 for r in results if r["status"] == "PASS")
     failed = sum(1 for r in results if r["status"] == "FAIL")
@@ -682,6 +715,7 @@ def main():
         "contract_id": contract.get("id", "unknown"),
         "snapshot_id": compute_snapshot_hash(args.data),
         "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        "mode": args.mode,
         "total_checks": len(results),
         "passed": passed,
         "failed": failed,

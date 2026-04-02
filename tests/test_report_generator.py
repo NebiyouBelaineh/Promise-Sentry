@@ -106,30 +106,32 @@ class TestComputeHealthScore:
         score = compute_health_score(reports, [], None, SAMPLE_AI_RESULTS)
         assert score == 100.0
 
-    def test_zero_failures_all_components(self):
-        score = compute_health_score(SAMPLE_REPORTS, [], None, SAMPLE_AI_RESULTS)
-        # 93.3% pass rate * 40 = 37.3, + 20 (no violations) + 20 (no evolution) + 20 (AI pass) = 97.3
-        assert score > 90
+    def test_pass_rate_formula(self):
+        # (140/150)*100 = 93.3, no critical violations
+        score = compute_health_score(SAMPLE_REPORTS, [], None, None)
+        assert round(score, 1) == 93.3
 
-    def test_violations_reduce_score(self):
-        no_violations = compute_health_score(SAMPLE_REPORTS, [], None, None)
-        with_violations = compute_health_score(SAMPLE_REPORTS, SAMPLE_VIOLATIONS, None, None)
-        assert with_violations < no_violations
+    def test_critical_violations_deduct_20_each(self):
+        reports = [{"total_checks": 100, "passed": 100}]
+        # 100% pass rate = 100, minus 2 critical * 20 = 60
+        violations = [{"severity": "CRITICAL"}, {"severity": "CRITICAL"}]
+        score = compute_health_score(reports, violations, None, None)
+        assert score == 60.0
 
-    def test_breaking_evolution_reduces_score(self):
-        no_evo = compute_health_score(SAMPLE_REPORTS, [], None, None)
-        with_evo = compute_health_score(SAMPLE_REPORTS, [], SAMPLE_EVOLUTION, None)
-        assert with_evo < no_evo
+    def test_non_critical_violations_no_deduction(self):
+        reports = [{"total_checks": 100, "passed": 100}]
+        violations = [{"severity": "HIGH"}, {"severity": "MEDIUM"}]
+        score = compute_health_score(reports, violations, None, None)
+        assert score == 100.0
 
     def test_score_clamped_0_to_100(self):
-        # Many critical violations
         many_violations = [{"severity": "CRITICAL"}] * 100
         score = compute_health_score([], many_violations, None, None)
-        assert 0 <= score <= 100
+        assert score == 0
 
     def test_empty_inputs(self):
         score = compute_health_score([], [], None, None)
-        assert 0 <= score <= 100
+        assert score == 100.0
 
 
 # ---------------------------------------------------------------------------

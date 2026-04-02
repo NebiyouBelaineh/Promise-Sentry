@@ -1,0 +1,118 @@
+kind: DataContract
+apiVersion: v3.0.0
+id: week4-brownfield-cartographer-lineage
+info:
+  title: Week 4 — Lineage Snapshots
+  version: 1.0.0
+  owner: week4-team
+  description: Auto-generated contract for lineage_snapshots. Each record represents
+    one unit of output from the Week 4 system.
+servers:
+  local:
+    type: local
+    path: outputs/week4/lineage_snapshots.jsonl
+    format: jsonl
+terms:
+  usage: Internal inter-system data contract. Do not publish.
+  limitations: Confidence fields must remain in 0.0-1.0 float range.
+schema:
+  snapshot_id:
+    type: string
+    required: true
+    format: uuid
+    pattern: ^[0-9a-f-]{36}$
+    enum:
+    - 301df9d3-465b-54dc-88c2-629678566e0d
+    - 97f3e47a-c6df-5bac-b552-a0dca33a1c51
+    - f86f5ac7-ca1f-546c-bdf8-573e9fae0acd
+    - 93c929eb-c0c3-5ff0-b7de-651c653d70d6
+    - d41de008-ef7d-5e23-bb2d-d71be8c5e1e6
+    description: Identifier field (string). Required — must not be null.
+    unique: true
+  codebase_root:
+    type: string
+    required: true
+    enum:
+    - /repos/airflow
+    - /repos/dbt-core
+    - /repos/jaffle-shop
+    - /repos/ol-data-platform
+    - /repos/sqlalchemy
+    description: Codebase Root field. Required — must not be null.
+  git_commit:
+    type: string
+    required: true
+    enum:
+    - ee25f3defc902eef0497c9e8b1017d42f1310e0d
+    - 2bd4a4163f868ae7543763309cadf78af6373784
+    - 226c7d53d3173c20a4f5d41f474548c786d27272
+    - 350c17adcc85560ca19c5274d6b5ca315ecf2a7d
+    - 9d6588e1628ae5c93e0a4d104734836ef4e1bf7f
+    description: Git Commit field. Required — must not be null.
+  captured_at:
+    type: string
+    required: true
+    format: date-time
+    enum:
+    - '2026-04-01T13:55:42.928624+00:00'
+    - '2026-03-14T23:29:54.774843+00:00'
+    - '2026-03-14T18:50:30.573865+00:00'
+    - '2026-03-14T14:54:34.156347+00:00'
+    - '2026-03-14T20:45:33.326018+00:00'
+    description: Timestamp in ISO 8601 format. Required — must not be null.
+  edges_source:
+    type: string
+    required: false
+    description: Edges Source field.
+  edges_target:
+    type: string
+    required: false
+    description: Edges Target field.
+  edges_relationship:
+    type: string
+    required: false
+    enum:
+    - PRODUCES
+    - CONSUMES
+    pattern: ^[A-Z][a-zA-Z0-9]+$
+    description: PascalCase identifier.
+  edges_confidence:
+    type: number
+    required: false
+    minimum: 0.0
+    maximum: 1.0
+    description: Confidence score. Must remain 0.0-1.0 float. BREAKING if changed
+      to 0-100.
+  nodes_node_id:
+    type: string
+    required: false
+    format: uuid
+    pattern: ^[0-9a-f-]{36}$
+    description: Identifier field (string).
+  nodes_type:
+    type: string
+    required: false
+    enum:
+    - FILE
+    pattern: ^[A-Z][a-zA-Z0-9]+$
+    description: PascalCase identifier.
+  nodes_label:
+    type: string
+    required: false
+    description: Nodes Label field.
+constraints: []
+quality:
+  type: SodaChecks
+  specification:
+    checks for lineage_snapshots:
+    - missing_count(snapshot_id) = 0
+    - duplicate_count(snapshot_id) = 0
+    - missing_count(codebase_root) = 0
+    - missing_count(git_commit) = 0
+    - missing_count(captured_at) = 0
+    - min(edges_confidence) >= 0.0
+    - max(edges_confidence) <= 1.0
+    - row_count >= 1
+lineage:
+  upstream: []
+  downstream: []

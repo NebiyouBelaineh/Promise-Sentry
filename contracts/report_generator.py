@@ -73,57 +73,20 @@ def load_json_file(path):
 def compute_health_score(reports, violations, evolution, ai_results):
     """Compute a 0-100 data health score.
 
-    Scoring breakdown:
-    - Validation pass rate: 0-40 points
-    - Violation severity: 0-20 points (deductions for critical/high)
-    - Schema stability: 0-20 points
-    - AI extension results: 0-20 points
+    Formula per spec: (checks_passed / total_checks) * 100,
+    adjusted down by 20 points for each CRITICAL violation.
     """
-    score = 0.0
-
-    # Validation pass rate (40 points)
     total_checks = sum(r.get("total_checks", 0) for r in reports)
     total_passed = sum(r.get("passed", 0) for r in reports)
+
     if total_checks > 0:
-        pass_rate = total_passed / total_checks
-        score += pass_rate * 40
+        base_score = (total_passed / total_checks) * 100
     else:
-        score += 40  # No checks = no failures
+        base_score = 100.0
 
-    # Violation severity (20 points, deductions)
-    violation_score = 20.0
-    for v in violations:
-        sev = v.get("severity", "")
-        if sev == "CRITICAL":
-            violation_score -= 1.0
-        elif sev == "HIGH":
-            violation_score -= 0.5
-        elif sev == "MEDIUM":
-            violation_score -= 0.25
-    score += max(violation_score, 0)
-
-    # Schema stability (20 points)
-    if evolution:
-        if evolution.get("classification") == "breaking":
-            score += 5
-        elif evolution.get("classification") == "none":
-            score += 20
-        else:
-            score += 15
-    else:
-        score += 20  # No evolution data = stable
-
-    # AI extensions (20 points)
-    if ai_results and "results" in ai_results:
-        ai_checks = ai_results["results"]
-        ai_total = len(ai_checks)
-        ai_passed = sum(1 for r in ai_checks if r.get("status") in ("PASS", "BASELINE_SET"))
-        if ai_total > 0:
-            score += (ai_passed / ai_total) * 20
-        else:
-            score += 20
-    else:
-        score += 10  # Partial credit if no AI data
+    # Deduct 20 points per CRITICAL violation
+    critical_count = sum(1 for v in violations if v.get("severity") == "CRITICAL")
+    score = base_score - (critical_count * 20)
 
     return round(min(max(score, 0), 100), 1)
 

@@ -1,0 +1,69 @@
+version: 2
+models:
+- name: lineage_snapshots
+  description: dbt schema for week4-brownfield-cartographer-lineage
+  columns:
+  - name: snapshot_id
+    tests:
+    - not_null
+    - unique
+    - accepted_values:
+        values:
+        - 301df9d3-465b-54dc-88c2-629678566e0d
+        - 97f3e47a-c6df-5bac-b552-a0dca33a1c51
+        - f86f5ac7-ca1f-546c-bdf8-573e9fae0acd
+        - 93c929eb-c0c3-5ff0-b7de-651c653d70d6
+        - d41de008-ef7d-5e23-bb2d-d71be8c5e1e6
+  - name: codebase_root
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - /repos/airflow
+        - /repos/dbt-core
+        - /repos/jaffle-shop
+        - /repos/ol-data-platform
+        - /repos/sqlalchemy
+  - name: git_commit
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - ee25f3defc902eef0497c9e8b1017d42f1310e0d
+        - 2bd4a4163f868ae7543763309cadf78af6373784
+        - 226c7d53d3173c20a4f5d41f474548c786d27272
+        - 350c17adcc85560ca19c5274d6b5ca315ecf2a7d
+        - 9d6588e1628ae5c93e0a4d104734836ef4e1bf7f
+  - name: captured_at
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - '2026-04-01T13:55:42.928624+00:00'
+        - '2026-03-14T23:29:54.774843+00:00'
+        - '2026-03-14T18:50:30.573865+00:00'
+        - '2026-03-14T14:54:34.156347+00:00'
+        - '2026-03-14T20:45:33.326018+00:00'
+  - name: edges_source
+  - name: edges_target
+  - name: edges_relationship
+    tests:
+    - accepted_values:
+        values:
+        - PRODUCES
+        - CONSUMES
+  - name: edges_confidence
+    tests:
+    - accepted_values:
+        values:
+        - '0.95'
+        - '0.75'
+    - dbt_utils.expression_is_true:
+        expression: edges_confidence >= 0.0 AND edges_confidence <= 1.0
+  - name: nodes_node_id
+  - name: nodes_type
+    tests:
+    - accepted_values:
+        values:
+        - FILE
+  - name: nodes_label
