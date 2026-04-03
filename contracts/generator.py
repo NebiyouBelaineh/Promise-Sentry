@@ -318,6 +318,76 @@ def infer_cross_column_constraints(records, column_profiles):
 
 
 # ---------------------------------------------------------------------------
+# Stage 3B: LLM annotation for ambiguous columns
+# ---------------------------------------------------------------------------
+
+def annotate_ambiguous_columns(contract, column_profiles, df):
+    """Annotate ambiguous columns with LLM-generated descriptions.
+
+    For columns whose business meaning is unclear from name and sample
+    values alone, invoke an LLM with the column name, table name, five
+    sample values, and adjacent column names for:
+    (a) a plain-English description
+    (b) a business rule as a validation expression
+    (c) any cross-column relationship
+
+    Requires ANTHROPIC_API_KEY in environment. Skips gracefully if unavailable.
+    """
+    import os
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return contract
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+    except (ImportError, Exception):
+        return contract
+
+    schema = contract.get("schema", {})
+    ambiguous = []
+    for col_name, clause in schema.items():
+        desc = clause.get("description", "")
+        # Columns with generic auto-generated descriptions are ambiguous
+        if "field" in desc.lower() and ("required" in desc.lower() or "identifier" in desc.lower()):
+            if col_name in column_profiles:
+                ambiguous.append(col_name)
+
+    # Limit to 10 most ambiguous to control cost
+    for col_name in ambiguous[:10]:
+        profile = column_profiles.get(col_name, {})
+        samples = profile.get("sample_values", [])[:5]
+        adjacent = list(schema.keys())[:10]
+
+        prompt = (
+            f"Column: {col_name}\n"
+            f"Adjacent columns: {', '.join(adjacent)}\n"
+            f"Sample values: {samples}\n"
+            f"Type: {profile.get('dtype', 'unknown')}\n\n"
+            f"Provide:\n"
+            f"1. A plain-English description of this column's business meaning\n"
+            f"2. A business rule as a validation expression\n"
+            f"3. Any cross-column relationship\n"
+            f"Reply in JSON: {{\"description\": ..., \"business_rule\": ..., \"cross_column\": ...}}"
+        )
+
+        try:
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text
+            annotation = json.loads(text)
+            schema[col_name]["llm_annotations"] = annotation
+        except Exception:
+            continue
+
+    return contract
+
+
+# ---------------------------------------------------------------------------
 # Stage 4: Lineage injection + write YAML
 # ---------------------------------------------------------------------------
 
@@ -519,6 +589,8 @@ def main():
     parser.add_argument("--source", required=True, help="Path to JSONL data file")
     parser.add_argument("--contract-id", required=True, help="Contract identifier")
     parser.add_argument("--lineage", default=None, help="Path to Week 4 lineage JSONL")
+    parser.add_argument("--annotate", action="store_true",
+                        help="Use LLM to annotate ambiguous columns (requires ANTHROPIC_API_KEY)")
     parser.add_argument("--output", required=True, help="Output directory for contracts")
     args = parser.parse_args()
 
@@ -552,6 +624,10 @@ def main():
     print("Building contract...")
     contract = build_contract(args.contract_id, source_path, column_profiles, args.lineage,
                               records=records)
+
+    if args.annotate:
+        print("Annotating ambiguous columns with LLM...")
+        contract = annotate_ambiguous_columns(contract, column_profiles, df)
 
     # Derive output filename from contract-id
     safe_name = args.contract_id.replace("-", "_").split("_", 1)[-1] if "_" in args.contract_id.replace("-", "_") else args.contract_id.replace("-", "_")
