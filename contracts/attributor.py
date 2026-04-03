@@ -390,18 +390,16 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges,
     affected_nodes = [
         d["node_id"] for d in lineage_blast.get("downstream", [])[:10]
     ]
-    # Add contamination_depth from lineage traversal.
-    # Each registry subscriber gets contamination_depth = max lineage hop
-    # depth from the matched node. Direct subscribers = 1, transitive = 2+.
-    # If no lineage match, depth = 1 (direct subscriber by registry).
-    max_lineage_depth = 0
+    # Add contamination_depth derived additively from lineage traversal
+    # after the registry lookup. Base depth = 1 (direct registry subscriber).
+    # Lineage enrichment adds the max hop depth from traversal on top.
     downstream_list = lineage_blast.get("downstream", [])
+    lineage_max_depth = 0
     if downstream_list:
-        max_lineage_depth = max(d.get("depth", 1) for d in downstream_list)
-    for i, sub in enumerate(registry_affected):
-        # Direct registry subscribers get depth 1; if lineage shows
-        # transitive contamination beyond direct, add that depth.
-        sub["contamination_depth"] = max(1, max_lineage_depth) if downstream_list else 1
+        lineage_max_depth = max(d.get("depth", 0) for d in downstream_list)
+    for sub in registry_affected:
+        base_depth = 1  # direct subscriber
+        sub["contamination_depth"] = base_depth + lineage_max_depth
 
     blast = {
         "registry_subscribers": registry_affected,

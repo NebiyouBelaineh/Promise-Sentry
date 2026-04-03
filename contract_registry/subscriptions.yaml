@@ -84,6 +84,19 @@ subscriptions:
     registered_at: '2026-03-10T09:00:00Z'
     contact: week7-team@org.com
 
+  - contract_id: week1-intent-records
+    subscriber_id: week2-digital-courtroom
+    subscriber_team: week2
+    fields_consumed: [intent_id, code_refs_file, code_refs_confidence]
+    breaking_fields:
+      - field: code_refs_file
+        reason: verdict target_ref references code_refs.file paths
+      - field: intent_id
+        reason: primary key for verdict target correlation
+    validation_mode: AUDIT
+    registered_at: '2026-03-10T09:00:00Z'
+    contact: week2-team@org.com
+
   - contract_id: langsmith-trace-records
     subscriber_id: week7-enforcer
     subscriber_team: week7
