@@ -187,8 +187,71 @@ def summarize_ai_extensions(ai_results):
     return {"extensions": summaries}
 
 
+SOURCE_FILE_MAP = {
+    "week5": "ledger/event_store.py",
+    "week3": "extraction/pipeline.py",
+    "week2": "auditor/graph.py",
+    "week1": "correlator/intent.py",
+}
+
+
+def _violation_to_recommendation(violation):
+    """Convert a specific violation into an actionable recommendation
+    naming the file path and contract clause."""
+    col = violation.get("column_name", "unknown")
+    check_id = violation.get("check_id", "unknown")
+    contract_id = violation.get("contract_id", "")
+    check_type = violation.get("check_type", "")
+    source_files = violation.get("source_files", [])
+
+    # Determine the likely source file
+    source_file = "unknown"
+    if source_files:
+        source_file = source_files[0]
+    else:
+        for key, path in SOURCE_FILE_MAP.items():
+            if key in contract_id:
+                source_file = path
+                break
+
+    col_readable = col.replace("payload_", "").replace("metadata_", "")
+
+    if check_type == "uuid_format":
+        return (
+            f"Update {source_file} to output '{col_readable}' as UUID v4 format, "
+            f"or reclassify it as a domain identifier in contract clause {check_id}."
+        )
+    elif check_type == "enum":
+        return (
+            f"Update {source_file} to ensure '{col_readable}' only contains values "
+            f"from the contract enum, or update contract clause {check_id} to include "
+            f"the new values after verifying downstream consumers can handle them."
+        )
+    elif "pattern" in check_type:
+        return (
+            f"Update {source_file} to output '{col_readable}' matching the expected "
+            f"pattern defined in contract clause {check_id}."
+        )
+    elif "range" in check_type:
+        return (
+            f"Update {source_file} to output '{col_readable}' within the range "
+            f"specified by contract clause {check_id}. If the range intentionally "
+            f"changed, update the contract and re-establish statistical baselines."
+        )
+    elif "drift" in check_type:
+        return (
+            f"Investigate the distribution shift in '{col_readable}' detected by "
+            f"contract clause {check_id}. If intentional, refresh the baseline in "
+            f"schema_snapshots/baselines.json."
+        )
+    else:
+        return (
+            f"Review '{col_readable}' in {source_file} per contract clause {check_id}."
+        )
+
+
 def generate_recommendations(health_score, violations, evolution, ai_results):
-    """Generate actionable recommendations based on all findings."""
+    """Generate actionable recommendations naming specific files and contract clauses."""
     recs = []
 
     if health_score < 50:
@@ -197,20 +260,25 @@ def generate_recommendations(health_score, violations, evolution, ai_results):
             "any new feature work."
         )
 
-    # Check for critical violations
-    critical_count = sum(1 for v in violations if v.get("severity") == "CRITICAL")
-    if critical_count > 0:
-        recs.append(
-            f"{critical_count} CRITICAL violations found. Review identifier formats "
-            f"and enum values across event types to prevent silent downstream failures."
-        )
+    # Top 3 specific violation recommendations
+    severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    sorted_v = sorted(violations,
+                       key=lambda v: severity_order.get(v.get("severity", "LOW"), 4))
+    for v in sorted_v[:3]:
+        recs.append(_violation_to_recommendation(v))
 
     # Schema evolution
     if evolution and evolution.get("classification") == "breaking":
-        recs.append(
-            "Breaking schema changes detected. Coordinate with downstream consumers "
-            "before deploying. See rollback plan in evolution report."
-        )
+        changes = evolution.get("changes", [])
+        breaking = [c for c in changes if c.get("compatibility") == "breaking"]
+        if breaking:
+            change = breaking[0]
+            recs.append(
+                f"Breaking schema change on '{change['column']}': {change['detail']}. "
+                f"Coordinate with downstream consumers listed in "
+                f"contract_registry/subscriptions.yaml before deploying. "
+                f"Rollback: revert to snapshot {evolution.get('before_snapshot', 'N/A')}."
+            )
 
     # AI extensions
     if ai_results and "results" in ai_results:
@@ -218,7 +286,7 @@ def generate_recommendations(health_score, violations, evolution, ai_results):
             if r.get("status") == "FAIL":
                 recs.append(
                     f"AI extension '{r.get('check_id')}' failed: {r.get('message', '')}. "
-                    f"Investigate the root cause."
+                    f"Investigate the root cause in the data source."
                 )
             elif r.get("status") == "WARN":
                 recs.append(

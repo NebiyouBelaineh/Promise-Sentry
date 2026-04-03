@@ -84,6 +84,11 @@ SAMPLE_EVOLUTION = {
     "total_changes": 6,
     "breaking_changes": 1,
     "summary": "1 breaking change detected.",
+    "before_snapshot": "schema_snapshots/week5/20260401.yaml",
+    "changes": [
+        {"column": "metadata_user_id", "change_type": "enum_values_removed",
+         "compatibility": "breaking", "detail": "Enum values removed: ['applicant']"},
+    ],
     "rollback_plan": {"needed": True, "steps": ["Revert enum"]},
 }
 
@@ -223,13 +228,14 @@ class TestGenerateRecommendations:
         recs = generate_recommendations(30, [], None, None)
         assert any("below 50" in r for r in recs)
 
-    def test_critical_violations_recommendation(self):
+    def test_critical_violations_produce_specific_recs(self):
         recs = generate_recommendations(80, SAMPLE_VIOLATIONS, None, None)
-        assert any("CRITICAL" in r for r in recs)
+        # Should reference specific file paths and contract clauses
+        assert any("clause" in r.lower() or "contract" in r.lower() for r in recs)
 
     def test_breaking_evolution_recommendation(self):
         recs = generate_recommendations(80, [], SAMPLE_EVOLUTION, None)
-        assert any("Breaking" in r for r in recs)
+        assert any("Breaking" in r or "breaking" in r for r in recs)
 
     def test_all_clear(self):
         recs = generate_recommendations(95, [], None, SAMPLE_AI_RESULTS)
@@ -239,6 +245,18 @@ class TestGenerateRecommendations:
         ai = {"results": [{"check_id": "ai.drift", "status": "FAIL", "message": "Big drift"}]}
         recs = generate_recommendations(80, [], None, ai)
         assert any("drift" in r.lower() for r in recs)
+
+    def test_uuid_violation_names_file_and_clause(self):
+        violations = [{
+            "check_id": "payload_app_id.uuid",
+            "column_name": "payload_application_id",
+            "check_type": "uuid_format",
+            "severity": "CRITICAL",
+            "contract_id": "week5-event-records",
+            "source_files": ["ledger/event_store.py"],
+        }]
+        recs = generate_recommendations(80, violations, None, None)
+        assert any("event_store.py" in r and "payload_app_id.uuid" in r for r in recs)
 
 
 # ---------------------------------------------------------------------------
