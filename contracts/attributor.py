@@ -377,9 +377,28 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges,
         }
 
     # Merge blast radius: registry is authoritative, lineage enriches
+    # Derive affected_pipelines from subscriber IDs
+    affected_pipelines = [
+        f"{s['subscriber_id']}-pipeline" for s in registry_affected
+    ]
+    # Derive affected_nodes from lineage downstream
+    affected_nodes = [
+        d["node_id"] for d in lineage_blast.get("downstream", [])[:10]
+    ]
+    # Add contamination_depth from lineage traversal
+    for sub in registry_affected:
+        sub["contamination_depth"] = 0
+        # Check if subscriber appears in lineage downstream at a deeper level
+        for d in lineage_blast.get("downstream", []):
+            if sub["subscriber_id"] in d.get("node_id", ""):
+                sub["contamination_depth"] = d.get("depth", 1)
+                break
+
     blast = {
         "registry_subscribers": registry_affected,
         "registry_subscriber_count": len(registry_affected),
+        "affected_nodes": affected_nodes,
+        "affected_pipelines": affected_pipelines,
         "lineage_downstream_nodes": lineage_blast["downstream_nodes"],
         "lineage_upstream_nodes": lineage_blast["upstream_nodes"],
         "total_graph_nodes": lineage_blast["total_graph_nodes"],

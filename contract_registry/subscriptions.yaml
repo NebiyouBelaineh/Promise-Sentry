@@ -80,3 +80,18 @@ subscriptions:
     validation_mode: AUDIT
     registered_at: '2026-03-10T09:00:00Z'
     contact: week7-team@org.com
+
+  - contract_id: langsmith-trace-records
+    subscriber_id: week7-enforcer
+    subscriber_team: week7
+    fields_consumed: [id, run_type, total_tokens, prompt_tokens, completion_tokens, total_cost, start_time, end_time]
+    breaking_fields:
+      - field: total_tokens
+        reason: token sum consistency (total_tokens == prompt_tokens + completion_tokens)
+      - field: run_type
+        reason: AI extension filters traces by run_type enum
+      - field: total_cost
+        reason: cost must be non-negative for budget tracking
+    validation_mode: AUDIT
+    registered_at: '2026-03-10T09:00:00Z'
+    contact: week7-team@org.com

@@ -253,6 +253,9 @@ class TestAttributeViolation:
         )
         assert result["blast_radius"]["registry_subscriber_count"] == 1
         assert result["blast_radius"]["registry_subscribers"][0]["subscriber_id"] == "week7-enforcer"
+        assert "affected_pipelines" in result["blast_radius"]
+        assert "affected_nodes" in result["blast_radius"]
+        assert "contamination_depth" in result["blast_radius"]["registry_subscribers"][0]
 
 
 class TestGitRecentCommits:
