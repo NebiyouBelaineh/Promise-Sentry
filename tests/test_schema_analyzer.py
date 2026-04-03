@@ -10,6 +10,8 @@ from contracts.schema_analyzer import (
     generate_rollback_plan,
     build_report,
     find_snapshot_pair,
+    find_snapshots_since,
+    per_consumer_failure_modes,
     load_snapshot,
     _summarize_clause,
 )
@@ -263,3 +265,63 @@ class TestSummarizeClause:
         result = _summarize_clause({"type": "number"})
         assert "format" not in result
         assert "enum" not in result
+
+
+class TestPerConsumerFailureModes:
+    def test_identifies_affected_consumer(self):
+        changes = [{
+            "column": "metadata_user_id",
+            "change_type": "enum_values_removed",
+            "compatibility": "breaking",
+            "detail": "Enum values removed: ['applicant']",
+            "before": ["applicant", "system"],
+            "after": ["system"],
+        }]
+        subs = [{
+            "contract_id": "week5-event-records",
+            "subscriber_id": "week7-enforcer",
+            "subscriber_team": "week7",
+            "fields_consumed": ["event_id", "metadata"],
+            "breaking_fields": [{"field": "metadata.user_id", "reason": "routing"}],
+            "validation_mode": "WARN",
+            "contact": "t@org.com",
+        }]
+        result = per_consumer_failure_modes(changes, "week5-event-records", subs)
+        assert len(result) == 1
+        assert result[0]["subscriber_id"] == "week7-enforcer"
+        assert len(result[0]["impacts"]) == 1
+
+    def test_no_breaking_returns_empty(self):
+        changes = [{"compatibility": "backward", "column": "x"}]
+        result = per_consumer_failure_modes(changes, "test", [])
+        assert result == []
+
+    def test_unaffected_consumer_excluded(self):
+        changes = [{
+            "column": "some_other_field",
+            "change_type": "column_removed",
+            "compatibility": "breaking",
+            "detail": "removed",
+            "before": {"type": "string"},
+            "after": None,
+        }]
+        subs = [{
+            "contract_id": "week5-event-records",
+            "subscriber_id": "week7-enforcer",
+            "fields_consumed": ["event_id"],
+            "breaking_fields": [{"field": "event_type", "reason": "routing"}],
+            "validation_mode": "WARN",
+        }]
+        result = per_consumer_failure_modes(changes, "week5-event-records", subs)
+        assert result == []
+
+
+class TestBuildReportWithConsumerImpact:
+    def test_includes_consumer_impact(self):
+        before = {"path": "a.yaml", "id": "test", "version": "1.0", "schema": {}}
+        after = {"path": "b.yaml", "id": "test", "version": "2.0", "schema": {}}
+        impacts = [{"subscriber_id": "s1", "impacts": [{"change": "x"}]}]
+        report = build_report(before, after, [], "none",
+                              {"needed": False, "steps": []},
+                              consumer_impacts=impacts)
+        assert len(report["consumer_impact"]) == 1

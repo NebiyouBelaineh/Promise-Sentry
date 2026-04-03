@@ -18,7 +18,7 @@ Usage:
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import yaml
@@ -328,13 +328,96 @@ def generate_rollback_plan(changes, before_snapshot):
     return {"needed": True, "steps": steps}
 
 
-def build_report(before, after, changes, classification, rollback):
+def load_registry(path):
+    """Load contract registry subscriptions."""
+    if not path or not Path(path).exists():
+        return []
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return data.get("subscriptions", [])
+
+
+def per_consumer_failure_modes(changes, contract_id, subscriptions):
+    """Analyze how each breaking change affects each registered consumer."""
+    breaking = [c for c in changes if c["compatibility"] == "breaking"]
+    if not breaking:
+        return []
+
+    consumer_impacts = []
+    relevant_subs = [s for s in subscriptions if s.get("contract_id") == contract_id]
+
+    for sub in relevant_subs:
+        sub_id = sub.get("subscriber_id", "unknown")
+        consumed = sub.get("fields_consumed", [])
+        breaking_fields = {bf.get("field", "") for bf in sub.get("breaking_fields", [])}
+        impacts = []
+
+        for change in breaking:
+            col = change["column"]
+            # Check if this consumer uses the affected column
+            col_normalized = col.replace("_", ".")
+            affected = any(
+                col_normalized in f.replace("_", ".") or f.replace("_", ".") in col_normalized
+                for f in consumed
+            ) or any(
+                col_normalized in bf.replace("_", ".") or bf.replace("_", ".") in col_normalized
+                for bf in breaking_fields
+            )
+            if affected:
+                reason = next(
+                    (bf.get("reason") for bf in sub.get("breaking_fields", [])
+                     if col.replace("_", ".") in bf.get("field", "").replace("_", ".")),
+                    "field consumed by this subscriber"
+                )
+                impacts.append({
+                    "change": change["detail"],
+                    "column": col,
+                    "failure_mode": f"{sub_id} will fail: {reason}",
+                    "validation_mode": sub.get("validation_mode", "AUDIT"),
+                })
+
+        if impacts:
+            consumer_impacts.append({
+                "subscriber_id": sub_id,
+                "subscriber_team": sub.get("subscriber_team"),
+                "contact": sub.get("contact"),
+                "impacts": impacts,
+            })
+
+    return consumer_impacts
+
+
+def find_snapshots_since(snapshot_dir, since_days):
+    """Find snapshot pairs within a time window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    snapshots = sorted(Path(snapshot_dir).glob("*.yaml"))
+
+    recent = []
+    for s in snapshots:
+        # Parse timestamp from filename: YYYYMMDD_HHMMSS.yaml
+        try:
+            ts_str = s.stem
+            ts = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
+            if ts >= cutoff:
+                recent.append(s)
+        except ValueError:
+            continue
+
+    if len(recent) >= 2:
+        return recent[-2], recent[-1]
+    # Fall back to the two most recent regardless of time
+    if len(snapshots) >= 2:
+        return snapshots[-2], snapshots[-1]
+    raise ValueError(f"Need at least 2 snapshots in {snapshot_dir}, found {len(snapshots)}")
+
+
+def build_report(before, after, changes, classification, rollback, consumer_impacts=None):
     """Build the full evolution report."""
     breaking_count = sum(1 for c in changes if c["compatibility"] == "breaking")
     backward_count = sum(1 for c in changes if c["compatibility"] == "backward")
     forward_count = sum(1 for c in changes if c["compatibility"] == "forward")
 
-    return {
+    report = {
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
         "contract_id": after["id"],
         "before_snapshot": before["path"],
@@ -349,8 +432,10 @@ def build_report(before, after, changes, classification, rollback):
         "verdict": "SAFE" if classification != "breaking" else "BREAKING",
         "changes": changes,
         "rollback_plan": rollback,
+        "consumer_impact": consumer_impacts or [],
         "summary": _build_summary(changes, classification),
     }
+    return report
 
 
 def _build_summary(changes, classification):
@@ -392,19 +477,54 @@ def main():
         help="Directory containing timestamped schema snapshots (uses two most recent)"
     )
     group.add_argument(
+        "--contract-id",
+        help="Contract ID; looks up snapshots in schema_snapshots/{contract-id}/"
+    )
+    group.add_argument(
         "--before",
         help="Path to the older schema snapshot YAML"
     )
     parser.add_argument("--after", help="Path to the newer schema snapshot YAML")
+    parser.add_argument(
+        "--since", default=None,
+        help="Time window for snapshot selection (e.g. '7 days ago', '30'). Defaults to all."
+    )
+    parser.add_argument(
+        "--registry", default="contract_registry/subscriptions.yaml",
+        help="Path to contract registry for per-consumer failure analysis"
+    )
     parser.add_argument(
         "--output", required=True,
         help="Output path for evolution report JSON"
     )
     args = parser.parse_args()
 
-    if args.snapshots:
+    # Resolve snapshot pair
+    if args.contract_id:
+        snapshot_dir = Path("schema_snapshots") / args.contract_id
+        if not snapshot_dir.exists():
+            print(f"Error: snapshot directory {snapshot_dir} does not exist")
+            return 1
+        print(f"Finding snapshots for contract {args.contract_id}...")
+        if args.since:
+            # Parse --since as number of days
+            try:
+                days = int(args.since.split()[0])
+            except (ValueError, IndexError):
+                days = 7
+            before_path, after_path = find_snapshots_since(str(snapshot_dir), days)
+        else:
+            before_path, after_path = find_snapshot_pair(str(snapshot_dir))
+    elif args.snapshots:
         print(f"Finding latest snapshot pair in {args.snapshots}...")
-        before_path, after_path = find_snapshot_pair(args.snapshots)
+        if args.since:
+            try:
+                days = int(args.since.split()[0])
+            except (ValueError, IndexError):
+                days = 7
+            before_path, after_path = find_snapshots_since(args.snapshots, days)
+        else:
+            before_path, after_path = find_snapshot_pair(args.snapshots)
     else:
         if not args.after:
             parser.error("--after is required when using --before")
@@ -415,6 +535,7 @@ def main():
 
     before = load_snapshot(before_path)
     after = load_snapshot(after_path)
+    contract_id = after["id"]
 
     print(f"\nDiffing schemas ({len(before['schema'])} -> {len(after['schema'])} columns)...")
     changes = diff_columns(before["schema"], after["schema"])
@@ -426,7 +547,14 @@ def main():
     classification = classify_evolution(changes)
     rollback = generate_rollback_plan(changes, before)
 
-    report = build_report(before, after, changes, classification, rollback)
+    # Per-consumer failure mode analysis
+    subscriptions = load_registry(args.registry)
+    consumer_impacts = per_consumer_failure_modes(changes, contract_id, subscriptions)
+    if consumer_impacts:
+        print(f"  {len(consumer_impacts)} consumer(s) affected by breaking changes")
+
+    report = build_report(before, after, changes, classification, rollback,
+                          consumer_impacts=consumer_impacts)
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -438,6 +566,9 @@ def main():
     print(f"  Breaking: {report['breaking_changes']}")
     print(f"  Backward-compatible: {report['backward_compatible_changes']}")
     print(f"  Verdict: {report['verdict']}")
+    if consumer_impacts:
+        for ci in consumer_impacts:
+            print(f"  Consumer {ci['subscriber_id']}: {len(ci['impacts'])} impact(s)")
     print(f"\nEvolution report written to {output_path}")
 
     return 0
