@@ -161,19 +161,24 @@ EXPECTED_EXTRACTION_SCHEMA = {
 }
 
 
-def check_prompt_input_schema(records):
+def check_prompt_input_schema(records, quarantine_path="outputs/quarantine/prompt_input.jsonl"):
     """Validate that extraction records match expected prompt input schema.
 
     Checks: required fields, fact structure, confidence range, doc_id format.
+    Non-conforming records are written to quarantine_path rather than being
+    silently dropped or passed through.
     """
     violations = []
+    quarantined_records = []
     total = len(records)
 
     for i, rec in enumerate(records):
+        rec_violations = []
+
         # Check required keys
         for key in EXPECTED_EXTRACTION_SCHEMA["required_keys"]:
             if key not in rec or rec[key] is None:
-                violations.append({
+                rec_violations.append({
                     "record_index": i,
                     "issue": f"Missing required field: {key}",
                     "doc_id": rec.get("doc_id", "unknown"),
@@ -182,34 +187,45 @@ def check_prompt_input_schema(records):
         # Check extracted_facts structure
         facts = rec.get("extracted_facts", [])
         if not isinstance(facts, list):
-            violations.append({
+            rec_violations.append({
                 "record_index": i,
                 "issue": "extracted_facts is not a list",
                 "doc_id": rec.get("doc_id", "unknown"),
             })
-            continue
+        else:
+            for j, fact in enumerate(facts):
+                for key in EXPECTED_EXTRACTION_SCHEMA["required_fact_keys"]:
+                    if key not in fact:
+                        rec_violations.append({
+                            "record_index": i,
+                            "fact_index": j,
+                            "issue": f"Fact missing required field: {key}",
+                            "doc_id": rec.get("doc_id", "unknown"),
+                        })
 
-        for j, fact in enumerate(facts):
-            for key in EXPECTED_EXTRACTION_SCHEMA["required_fact_keys"]:
-                if key not in fact:
-                    violations.append({
-                        "record_index": i,
-                        "fact_index": j,
-                        "issue": f"Fact missing required field: {key}",
-                        "doc_id": rec.get("doc_id", "unknown"),
-                    })
+                # Confidence range
+                conf = fact.get("confidence")
+                if conf is not None:
+                    lo, hi = EXPECTED_EXTRACTION_SCHEMA["confidence_range"]
+                    if not (lo <= conf <= hi):
+                        rec_violations.append({
+                            "record_index": i,
+                            "fact_index": j,
+                            "issue": f"Confidence {conf} outside [{lo}, {hi}]",
+                            "doc_id": rec.get("doc_id", "unknown"),
+                        })
 
-            # Confidence range
-            conf = fact.get("confidence")
-            if conf is not None:
-                lo, hi = EXPECTED_EXTRACTION_SCHEMA["confidence_range"]
-                if not (lo <= conf <= hi):
-                    violations.append({
-                        "record_index": i,
-                        "fact_index": j,
-                        "issue": f"Confidence {conf} outside [{lo}, {hi}]",
-                        "doc_id": rec.get("doc_id", "unknown"),
-                    })
+        if rec_violations:
+            violations.extend(rec_violations)
+            quarantined_records.append(rec)
+
+    # Write quarantined records
+    if quarantined_records and quarantine_path:
+        q_path = Path(quarantine_path)
+        q_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(q_path, "w") as f:
+            for qr in quarantined_records:
+                f.write(json.dumps(qr, default=str) + "\n")
 
     violation_rate = len(violations) / max(total, 1)
 
@@ -230,10 +246,13 @@ def check_prompt_input_schema(records):
         "severity": severity,
         "total_records": total,
         "violations_found": len(violations),
+        "quarantined_count": len(quarantined_records),
+        "quarantine_path": str(quarantine_path) if quarantined_records else None,
         "violation_rate": round(violation_rate, 4),
         "sample_violations": violations[:10],
         "message": f"{len(violations)} input schema violations across {total} records "
-                   f"(rate: {violation_rate:.2%}).",
+                   f"(rate: {violation_rate:.2%}). "
+                   f"{len(quarantined_records)} record(s) quarantined.",
     }
 
 

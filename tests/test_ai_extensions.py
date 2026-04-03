@@ -180,9 +180,24 @@ class TestCheckPromptInputSchema:
             "extracted_at": "t",
             "extracted_facts": [{"fact_id": "f1", "text": "t", "confidence": 85.0}],
         }]
-        result = check_prompt_input_schema(bad_records)
+        result = check_prompt_input_schema(bad_records, quarantine_path=None)
         assert result["violations_found"] >= 1
         assert any("Confidence" in v["issue"] for v in result["sample_violations"])
+
+    def test_quarantines_bad_records(self, tmp_path):
+        bad_records = [
+            {"doc_id": "x", "source_path": "/x", "extraction_model": "m",
+             "extracted_at": "t", "extracted_facts": [{"fact_id": "f1", "text": "t", "confidence": 85.0}]},
+            {"doc_id": "y", "source_path": "/y", "extraction_model": "m",
+             "extracted_at": "t", "extracted_facts": [{"fact_id": "f2", "text": "t", "confidence": 0.9}]},
+        ]
+        q_path = tmp_path / "quarantine.jsonl"
+        result = check_prompt_input_schema(bad_records, quarantine_path=str(q_path))
+        assert result["quarantined_count"] == 1
+        assert q_path.exists()
+        with open(q_path) as f:
+            lines = f.readlines()
+        assert len(lines) == 1
 
     def test_fails_on_non_list_facts(self):
         bad_records = [{
