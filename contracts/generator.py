@@ -122,6 +122,41 @@ def profile_all_columns(df):
     return {col: profile_column(df[col], col) for col in df.columns}
 
 
+def write_baselines(column_profiles, baselines_path="schema_snapshots/baselines.json"):
+    """Write statistical baselines (mean, stddev) per numeric column to a persistent file.
+
+    Precondition: column_profiles is the output of profile_all_columns().
+    Guarantee: baselines.json is written with mean and stddev for every
+    numeric column that has stats. Existing baselines are preserved for
+    columns not present in the current profile.
+    """
+    baselines_file = Path(baselines_path)
+    baselines_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Preserve existing baselines for columns not in current profile
+    existing = {}
+    if baselines_file.exists():
+        with open(baselines_file) as f:
+            existing = json.load(f).get("columns", {})
+
+    columns = dict(existing)
+    for col_name, profile in column_profiles.items():
+        if "stats" in profile:
+            columns[col_name] = {
+                "mean": profile["stats"]["mean"],
+                "stddev": profile["stats"]["stddev"],
+            }
+
+    data = {
+        "written_at": datetime.now(timezone.utc).isoformat(),
+        "columns": columns,
+    }
+    with open(baselines_file, "w") as f:
+        json.dump(data, f, indent=2)
+
+    return len(columns)
+
+
 # ---------------------------------------------------------------------------
 # Stage 3: Translate profiles to Bitol YAML clauses
 # ---------------------------------------------------------------------------
@@ -609,6 +644,10 @@ def main():
 
     column_profiles = profile_all_columns(df)
     print(f"  Profiled {len(column_profiles)} columns")
+
+    # Write statistical baselines
+    baseline_count = write_baselines(column_profiles)
+    print(f"  Statistical baselines written for {baseline_count} numeric columns")
 
     # Flag confidence issues
     for col_name, profile in column_profiles.items():

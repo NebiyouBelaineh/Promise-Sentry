@@ -144,16 +144,21 @@ def registry_blast_radius(contract_id, failing_field, subscriptions):
         if sub.get("contract_id") != contract_id:
             continue
         breaking = sub.get("breaking_fields", [])
-        # Normalize: underscores and dots are equivalent for matching
-        norm_field = failing_field.replace("_", ".").replace("payload.", "").replace("metadata.", "")
+        # Match failing field against breaking_fields and fields_consumed.
+        # Both use underscore notation matching runner check column names.
+        stripped = failing_field.replace("payload_", "").replace("metadata_", "")
         field_match = any(
-            norm_field in bf.get("field", "").replace("_", ".")
-            or bf.get("field", "").replace("_", ".") in norm_field
+            failing_field == bf.get("field", "")
+            or stripped == bf.get("field", "")
+            or bf.get("field", "") in failing_field
+            or failing_field in bf.get("field", "")
             for bf in breaking
         )
-        field_consumed = failing_field.replace("payload_", "").replace("metadata_", "").replace("_", ".") in str(
-            sub.get("fields_consumed", [])
-        ).replace("_", ".")
+        field_consumed = any(
+            failing_field == fc or stripped == fc
+            or fc in failing_field or failing_field in fc
+            for fc in sub.get("fields_consumed", [])
+        )
         if field_match or field_consumed:
             affected.append({
                 "subscriber_id": sub.get("subscriber_id"),
@@ -385,14 +390,18 @@ def attribute_violation(check_result, contract_id, repo_path, nodes, edges,
     affected_nodes = [
         d["node_id"] for d in lineage_blast.get("downstream", [])[:10]
     ]
-    # Add contamination_depth from lineage traversal
-    for sub in registry_affected:
-        sub["contamination_depth"] = 0
-        # Check if subscriber appears in lineage downstream at a deeper level
-        for d in lineage_blast.get("downstream", []):
-            if sub["subscriber_id"] in d.get("node_id", ""):
-                sub["contamination_depth"] = d.get("depth", 1)
-                break
+    # Add contamination_depth from lineage traversal.
+    # Each registry subscriber gets contamination_depth = max lineage hop
+    # depth from the matched node. Direct subscribers = 1, transitive = 2+.
+    # If no lineage match, depth = 1 (direct subscriber by registry).
+    max_lineage_depth = 0
+    downstream_list = lineage_blast.get("downstream", [])
+    if downstream_list:
+        max_lineage_depth = max(d.get("depth", 1) for d in downstream_list)
+    for i, sub in enumerate(registry_affected):
+        # Direct registry subscribers get depth 1; if lineage shows
+        # transitive contamination beyond direct, add that depth.
+        sub["contamination_depth"] = max(1, max_lineage_depth) if downstream_list else 1
 
     blast = {
         "registry_subscribers": registry_affected,

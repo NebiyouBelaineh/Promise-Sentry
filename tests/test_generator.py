@@ -4,7 +4,7 @@ import sys
 import pytest
 from unittest.mock import patch, MagicMock
 
-from contracts.generator import annotate_ambiguous_columns
+from contracts.generator import annotate_ambiguous_columns, write_baselines
 
 
 class TestAnnotateAmbiguousColumns:
@@ -56,3 +56,41 @@ class TestAnnotateAmbiguousColumns:
 
         assert "llm_annotations" in result["schema"]["payload_app_id"]
         assert result["schema"]["payload_app_id"]["llm_annotations"]["description"] == "Application ID"
+
+
+class TestWriteBaselines:
+    def test_writes_baselines_file(self, tmp_path):
+        profiles = {
+            "score": {"stats": {"mean": 0.83, "stddev": 0.05}},
+            "name": {"dtype": "object"},
+        }
+        path = str(tmp_path / "baselines.json")
+        count = write_baselines(profiles, baselines_path=path)
+        assert count == 1
+
+        with open(path) as f:
+            data = json.load(f)
+        assert "score" in data["columns"]
+        assert data["columns"]["score"]["mean"] == 0.83
+        assert data["columns"]["score"]["stddev"] == 0.05
+
+    def test_preserves_existing_baselines(self, tmp_path):
+        path = str(tmp_path / "baselines.json")
+        # Write initial baseline
+        with open(path, "w") as f:
+            json.dump({"columns": {"old_col": {"mean": 1.0, "stddev": 0.1}}}, f)
+
+        profiles = {"new_col": {"stats": {"mean": 2.0, "stddev": 0.2}}}
+        count = write_baselines(profiles, baselines_path=path)
+        assert count == 2
+
+        with open(path) as f:
+            data = json.load(f)
+        assert "old_col" in data["columns"]
+        assert "new_col" in data["columns"]
+
+    def test_skips_non_numeric_columns(self, tmp_path):
+        profiles = {"text_col": {"dtype": "object"}}
+        path = str(tmp_path / "baselines.json")
+        count = write_baselines(profiles, baselines_path=path)
+        assert count == 0

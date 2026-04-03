@@ -281,17 +281,6 @@ SAMPLE_SUBSCRIPTIONS = [
         "validation_mode": "WARN",
         "contact": "team@org.com",
     },
-    {
-        "contract_id": "week3-document-refinery-extractions",
-        "subscriber_id": "week4-cartographer",
-        "subscriber_team": "week4",
-        "fields_consumed": ["doc_id", "extracted_facts"],
-        "breaking_fields": [
-            {"field": "extracted_facts.confidence", "reason": "ranking"},
-        ],
-        "validation_mode": "ENFORCE",
-        "contact": "team@org.com",
-    },
 ]
 
 
@@ -310,10 +299,23 @@ class TestRegistryBlastRadius:
         assert result == []
 
     def test_matches_on_breaking_field(self):
+        subs = [
+            {
+                "contract_id": "week3-document-refinery-extractions",
+                "subscriber_id": "week4-cartographer",
+                "subscriber_team": "week4",
+                "fields_consumed": ["doc_id", "extracted_facts_confidence"],
+                "breaking_fields": [
+                    {"field": "extracted_facts_confidence", "reason": "ranking"},
+                ],
+                "validation_mode": "ENFORCE",
+                "contact": "team@org.com",
+            },
+        ]
         result = registry_blast_radius(
             "week3-document-refinery-extractions",
             "extracted_facts_confidence",
-            SAMPLE_SUBSCRIPTIONS,
+            subs,
         )
         assert len(result) == 1
         assert result[0]["subscriber_id"] == "week4-cartographer"
